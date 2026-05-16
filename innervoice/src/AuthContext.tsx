@@ -1,5 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { User } from '@supabase/supabase-js'
 import type { AvatarThemePalette } from './lib/avatarPalette'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 
 interface StoredUser {
   email: string
@@ -44,15 +46,8 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 const USERS_KEY = 'innervoice-users'
 const SESSION_KEY = 'innervoice-session'
-
-function hashPassword(password: string): string {
-  let hash = 0
-  for (let i = 0; i < password.length; i += 1) {
-    hash = (hash << 5) - hash + password.charCodeAt(i)
-    hash |= 0
-  }
-  return `iv-${hash}`
-}
+const CONVERSATIONS_KEY = 'innervoice-conversations'
+const MIGRATION_PREFIX = 'innervoice-supabase-migrated'
 
 function readUsers(): Record<string, StoredUser> {
   try {
@@ -68,23 +63,6 @@ function readUsers(): Record<string, StoredUser> {
     return raw
   } catch {
     return {}
-  }
-}
-
-function writeUsers(users: Record<string, StoredUser>) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
-}
-
-function toPublicUser(stored: StoredUser): PublicUser {
-  return {
-    email: stored.email,
-    name: stored.name,
-    voiceId: stored.voiceId,
-    bio: stored.bio ?? '',
-    avatarUrl: stored.avatarUrl ?? null,
-    themeFromAvatar: stored.themeFromAvatar ?? false,
-    avatarTheme: stored.avatarTheme ?? null,
-    createdAt: stored.createdAt,
   }
 }
 
@@ -114,8 +92,170 @@ function writeSession(user: PublicUser | null) {
   }
 }
 
+function readStoredConversations() {
+  try {
+    const raw = localStorage.getItem(CONVERSATIONS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as Array<{
+      id: string
+      title: string
+      voiceId: string
+      createdAt: number
+      updatedAt: number
+      messages: Array<{
+        id: string
+        role: 'user' | 'assistant'
+        text: string
+        audioUrl?: string
+        timestamp: number
+        emotion?: string
+      }>
+    }>
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+async function ensureProfileForUser(
+  authUser: User,
+  fallback?: Partial<StoredUser>,
+): Promise<PublicUser> {
+  if (!supabase) throw new Error('Supabase is not configured.')
+  const { data: existing, error: profileError } = await supabase
+    .from('profiles')
+    .select('email,name,bio,avatar_url,theme_from_avatar,avatar_theme,voice_id,created_at')
+    .eq('id', authUser.id)
+    .maybeSingle()
+
+  if (profileError) throw profileError
+
+  if (!existing) {
+    const createdAtIso = new Date(fallback?.createdAt ?? Date.now()).toISOString()
+    const initialProfile = {
+      id: authUser.id,
+      email: authUser.email ?? fallback?.email ?? '',
+      name: fallback?.name ?? authUser.user_metadata?.name ?? 'InnerVoice User',
+      bio: fallback?.bio ?? authUser.user_metadata?.bio ?? '',
+      avatar_url: fallback?.avatarUrl ?? null,
+      theme_from_avatar: fallback?.themeFromAvatar ?? false,
+      avatar_theme: fallback?.avatarTheme ?? null,
+      voice_id: fallback?.voiceId ?? null,
+      created_at: createdAtIso,
+    }
+    const { error: insertError } = await supabase.from('profiles').upsert(initialProfile, { onConflict: 'id' })
+    if (insertError) throw insertError
+    return {
+      email: initialProfile.email,
+      name: initialProfile.name,
+      bio: initialProfile.bio,
+      avatarUrl: initialProfile.avatar_url,
+      themeFromAvatar: initialProfile.theme_from_avatar,
+      avatarTheme: initialProfile.avatar_theme as AvatarThemePalette | null,
+      voiceId: initialProfile.voice_id,
+      createdAt: Date.parse(initialProfile.created_at),
+    }
+  }
+
+  return {
+    email: existing.email ?? authUser.email ?? '',
+    name: existing.name ?? authUser.user_metadata?.name ?? 'InnerVoice User',
+    bio: existing.bio ?? '',
+    avatarUrl: existing.avatar_url ?? null,
+    themeFromAvatar: existing.theme_from_avatar ?? false,
+    avatarTheme: (existing.avatar_theme as AvatarThemePalette | null) ?? null,
+    voiceId: existing.voice_id ?? null,
+    createdAt: existing.created_at ? Date.parse(existing.created_at) : Date.now(),
+  }
+}
+
+async function migrateLocalDataIfNeeded(authUser: User) {
+  if (!supabase) return
+  const migrationKey = `${MIGRATION_PREFIX}:${authUser.id}`
+  if (localStorage.getItem(migrationKey) === 'done') return
+
+  const users = readUsers()
+  const localUser = users[authUser.email?.toLowerCase() ?? '']
+  if (!localUser) {
+    localStorage.setItem(migrationKey, 'done')
+    return
+  }
+
+  await ensureProfileForUser(authUser, localUser)
+
+  const localConversations = readStoredConversations()
+  const relevantConversations = localUser.voiceId
+    ? localConversations.filter((conversation) => conversation.voiceId === localUser.voiceId)
+    : localConversations
+
+  for (const conversation of relevantConversations) {
+    const { error: conversationError } = await supabase.from('conversations').upsert(
+      {
+        id: conversation.id,
+        user_id: authUser.id,
+        title: conversation.title,
+        voice_id: conversation.voiceId,
+        created_at: new Date(conversation.createdAt).toISOString(),
+        updated_at: new Date(conversation.updatedAt).toISOString(),
+      },
+      { onConflict: 'id' },
+    )
+    if (conversationError) throw conversationError
+
+    if (!conversation.messages.length) continue
+    const rows = conversation.messages.map((message) => ({
+      id: message.id,
+      conversation_id: conversation.id,
+      role: message.role,
+      text: message.text,
+      audio_url: message.audioUrl ?? null,
+      emotion: message.emotion ?? null,
+      ts: message.timestamp,
+      created_at: new Date(message.timestamp).toISOString(),
+    }))
+    const { error: messageError } = await supabase.from('messages').upsert(rows, { onConflict: 'id' })
+    if (messageError) throw messageError
+  }
+
+  localStorage.setItem(migrationKey, 'done')
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(() => readSession())
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return
+
+    let cancelled = false
+
+    const syncUser = async (authUser: User | null) => {
+      if (!authUser) {
+        writeSession(null)
+        if (!cancelled) setUser(null)
+        return
+      }
+
+      try {
+        await migrateLocalDataIfNeeded(authUser)
+        const profile = await ensureProfileForUser(authUser)
+        writeSession(profile)
+        if (!cancelled) setUser(profile)
+      } catch (error) {
+        const fallback = readSession()
+        if (!cancelled) setUser(fallback)
+      }
+    }
+
+    void supabase.auth.getUser().then(({ data }) => syncUser(data.user ?? null))
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      void syncUser(session?.user ?? null)
+    })
+
+    return () => {
+      cancelled = true
+      subscription.subscription.unsubscribe()
+    }
+  }, [])
 
   const register = useCallback(
     async ({ name, email, password, bio }: { name: string; email: string; password: string; bio?: string }) => {
@@ -126,43 +266,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (password.length < 6) {
         throw new Error('Password must be at least 6 characters.')
       }
-      const users = readUsers()
-      if (users[normalizedEmail]) {
-        throw new Error('An account with that email already exists. Try logging in.')
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env')
       }
-      const stored: StoredUser = {
+
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            name: name.trim(),
+            bio: bio?.trim() ?? '',
+          },
+        },
+      })
+
+      if (error) throw error
+      const authUser = data.user
+      if (!authUser) throw new Error('Registration failed. Please try again.')
+
+      const profile = await ensureProfileForUser(authUser, {
         email: normalizedEmail,
         name: name.trim(),
-        passwordHash: hashPassword(password),
-        voiceId: null,
         bio: bio?.trim() ?? '',
-        avatarUrl: null,
-        themeFromAvatar: false,
-        avatarTheme: null,
         createdAt: Date.now(),
-      }
-      users[normalizedEmail] = stored
-      writeUsers(users)
-      const publicUser = toPublicUser(stored)
-      writeSession(publicUser)
-      setUser(publicUser)
+      })
+
+      writeSession(profile)
+      setUser(profile)
     },
     [],
   )
 
   const login = useCallback(async ({ email, password }: { email: string; password: string }) => {
     const normalizedEmail = email.trim().toLowerCase()
-    const users = readUsers()
-    const stored = users[normalizedEmail]
-    if (!stored || stored.passwordHash !== hashPassword(password)) {
-      throw new Error('Invalid email or password.')
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env')
     }
-    const publicUser = toPublicUser(stored)
-    writeSession(publicUser)
-    setUser(publicUser)
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    })
+
+    if (error) throw error
+    const authUser = data.user
+    if (!authUser) throw new Error('Invalid email or password.')
+
+    await migrateLocalDataIfNeeded(authUser)
+    const profile = await ensureProfileForUser(authUser)
+    writeSession(profile)
+    setUser(profile)
   }, [])
 
   const logout = useCallback(() => {
+    if (supabase) {
+      void supabase.auth.signOut()
+    }
     writeSession(null)
     setUser(null)
   }, [])
@@ -170,12 +330,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setUserVoiceId = useCallback((voiceId: string | null) => {
     setUser((current) => {
       if (!current) return current
-      const users = readUsers()
-      const stored = users[current.email]
-      if (stored) {
-        stored.voiceId = voiceId
-        users[current.email] = stored
-        writeUsers(users)
+      const client = supabase
+      if (client) {
+        void client.auth.getUser().then(({ data }) => {
+          if (!data.user) return
+          void client.from('profiles').update({ voice_id: voiceId }).eq('id', data.user.id)
+        })
       }
       const next: PublicUser = { ...current, voiceId }
       writeSession(next)
@@ -201,40 +361,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!trimmedName) {
         throw new Error('Name cannot be empty.')
       }
-      const current = readSession()
+      const current = readSession() ?? user
       if (!current) return
-      const users = readUsers()
-      const stored = users[current.email]
-      if (!stored) return
-      stored.name = trimmedName
-      if (bio !== undefined) stored.bio = bio.trim()
-      if (avatarUrl !== undefined) {
-        stored.avatarUrl = avatarUrl
-        if (!avatarUrl) {
-          stored.themeFromAvatar = false
-          stored.avatarTheme = null
-        }
-      }
-      if (themeFromAvatar !== undefined) stored.themeFromAvatar = themeFromAvatar
-      if (avatarTheme !== undefined) stored.avatarTheme = avatarTheme
-      if (!stored.avatarUrl) {
-        stored.themeFromAvatar = false
-        stored.avatarTheme = null
-      }
-      users[current.email] = stored
-      writeUsers(users)
+
+      if (!supabase) throw new Error('Supabase is not configured.')
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData.user) return
+
+      const nextAvatarUrl = avatarUrl !== undefined ? avatarUrl : current.avatarUrl
+      const nextThemeFromAvatar =
+        nextAvatarUrl && themeFromAvatar !== undefined ? themeFromAvatar : nextAvatarUrl ? current.themeFromAvatar : false
+      const nextAvatarTheme = nextAvatarUrl ? (avatarTheme !== undefined ? avatarTheme : current.avatarTheme) : null
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          name: trimmedName,
+          bio: bio !== undefined ? bio.trim() : current.bio,
+          avatar_url: nextAvatarUrl,
+          theme_from_avatar: nextThemeFromAvatar,
+          avatar_theme: nextAvatarTheme,
+        })
+        .eq('id', authData.user.id)
+
+      if (error) throw error
+
       const next: PublicUser = {
         ...current,
         name: trimmedName,
-        bio: stored.bio,
-        avatarUrl: stored.avatarUrl ?? null,
-        themeFromAvatar: stored.themeFromAvatar ?? false,
-        avatarTheme: stored.avatarTheme ?? null,
+        bio: bio !== undefined ? bio.trim() : current.bio,
+        avatarUrl: nextAvatarUrl ?? null,
+        themeFromAvatar: nextThemeFromAvatar ?? false,
+        avatarTheme: nextAvatarTheme ?? null,
       }
       writeSession(next)
       setUser(next)
     },
-    [],
+    [user],
   )
 
   const value = useMemo<AuthContextValue>(
