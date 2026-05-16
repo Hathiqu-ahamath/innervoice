@@ -9,7 +9,7 @@ import { V3_TAG_PROMPT_HINT } from '../../lib/elevenV3Tags'
 // completions calls already made from the browser elsewhere in the app.
 
 const REALTIME_URL = 'wss://api.openai.com/v1/realtime'
-const PRIMARY_MODEL = 'gpt-realtime'
+const PRIMARY_MODEL = 'gpt-4o-realtime-preview'
 const FALLBACK_MODEL = 'gpt-4o-realtime-preview-2024-12-17'
 // Keep this tight. If the WS hangs (network, region, key without realtime
 // access, etc.) we want to surrender to the chat-completions fallback fast
