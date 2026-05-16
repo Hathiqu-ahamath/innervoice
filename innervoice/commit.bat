@@ -6,7 +6,9 @@ rem Usage:
 rem   commit.bat "fix: short message"
 rem   commit.bat "feat: short message" --no-push
 
-cd /d "%~dp0"
+rem Operate from the repo root so `git add -A` stages everything,
+rem not just files inside the innervoice\ subfolder.
+cd /d "%~dp0.."
 
 set "COMMIT_MSG="
 set "NO_PUSH=0"
@@ -38,7 +40,7 @@ echo.
 echo [commit] Milestone: %COMMIT_MSG%
 echo.
 
-git add .
+git add -A
 if errorlevel 1 exit /b %ERRORLEVEL%
 
 git diff --cached --quiet
