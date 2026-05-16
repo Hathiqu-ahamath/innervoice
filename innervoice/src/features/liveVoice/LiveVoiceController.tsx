@@ -346,32 +346,30 @@ export function LiveVoiceController() {
     setLatestReply(GREETING_DISPLAY)
     const sessionId = sessionIdRef.current
 
-    // Speak the greeting through ElevenLabs (v3 audio tags inside GREETING_TEXT
-    // give it warmth). This is what makes the popup feel "alive" the moment
-    // it opens — without it the user just sees text and assumes nothing works.
-    void speak({
-      text: GREETING_TEXT,
-      emotion: 'neutral',
-      voiceId,
-      realtime: false,
-    }).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.warn('[live-voice] greeting speak failed', err)
-      // ElevenLabs failed -- surface it so the user knows audio output is
-      // broken (most common cause: key/quota issue).
-      setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
-    })
+    // Speak first, then listen. Starting the recorder during the greeting can
+    // make the popup transcribe its own ElevenLabs audio as user input.
+    void (async () => {
+      try {
+        setStatusDetail('Speaking...')
+        await speak({
+          text: GREETING_TEXT,
+          emotion: 'neutral',
+          voiceId,
+          realtime: false,
+        })
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[live-voice] greeting speak failed', err)
+        setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
+      }
 
-    void startListening().then(() => {
       if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-      // Don't fight the greeting — only flip to "listening" once it has had
-      // a moment to start playing.
-      window.setTimeout(() => {
-        if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-        if (Date.now() < stickyStatusUntilRef.current) return
-        setStatusDetail("I'm listening...")
-      }, 600)
-    })
+      setStatusDetail('Opening microphone...')
+      await startListening()
+      if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
+      if (Date.now() < stickyStatusUntilRef.current) return
+      setStatusDetail("I'm listening...")
+    })()
   }, [setStickyStatus, speak, startListening, voiceId])
 
   const endSession = useCallback(() => {
