@@ -9,8 +9,8 @@ import { useVoiceOutput } from './useVoiceOutput'
 const SILENCE_AUTO_CLOSE_MS = 18000
 
 function LiveOrb({ level, active }: { level: number; active: boolean }) {
-  const scale = 0.96 + Math.min(0.28, level * 0.3)
-  const glow = 0.16 + Math.min(0.52, level * 0.58)
+  const scale = active ? 0.96 + Math.min(0.34, level * 0.36) : 1
+  const glow = active ? 0.18 + Math.min(0.62, level * 0.68) : 0.1
   return (
     <div className="relative mx-auto flex h-48 w-48 items-center justify-center sm:h-56 sm:w-56">
       {[0, 1, 2].map((ring) => (
@@ -19,11 +19,11 @@ function LiveOrb({ level, active }: { level: number; active: boolean }) {
           className="absolute inset-0 rounded-full border border-accent/35"
           animate={
             active
-              ? { scale: [1, 1.12 + ring * 0.06, 1], opacity: [0.48, 0.15, 0.48] }
-              : { scale: 1, opacity: 0.2 }
+              ? { scale: [1, 1.14 + ring * 0.07, 1], opacity: [0.5, 0.1, 0.5] }
+              : { scale: [1, 1.03, 1], opacity: [0.18, 0.24, 0.18] }
           }
           transition={{
-            duration: 1.8 + ring * 0.24,
+            duration: active ? 1.4 + ring * 0.2 : 4.6 + ring * 0.3,
             repeat: Infinity,
             ease: 'easeInOut',
             delay: ring * 0.18,
@@ -32,8 +32,12 @@ function LiveOrb({ level, active }: { level: number; active: boolean }) {
       ))}
       <motion.div
         className="relative flex h-28 w-28 items-center justify-center rounded-full border border-accent/40 bg-accent-soft sm:h-32 sm:w-32"
-        animate={{ scale, boxShadow: `0 0 ${20 + level * 42}px rgb(95 143 139 / ${glow.toFixed(2)})` }}
-        transition={{ duration: 0.12, ease: 'easeOut' }}
+        animate={{
+          scale: active ? scale : [1, 1.03, 1],
+          boxShadow: `0 0 ${20 + level * 52}px rgb(95 143 139 / ${glow.toFixed(2)})`,
+          filter: active ? `blur(${Math.max(0, level * 0.4).toFixed(2)}px)` : 'blur(0px)',
+        }}
+        transition={{ duration: active ? 0.11 : 2.4, ease: 'easeOut', repeat: active ? 0 : Infinity }}
       >
         <div className="h-6 w-6 rounded-full bg-accent" />
       </motion.div>
@@ -47,13 +51,13 @@ function WaveStrip({ level, active }: { level: number; active: boolean }) {
     <div className="mt-4 flex h-10 items-center justify-center gap-1">
       {Array.from({ length: points }).map((_, i) => {
         const wave = Math.sin(i / 4) * 0.5 + 0.5
-        const height = active ? 4 + Math.max(2, level * 24 * wave) : 4
+        const height = active ? 4 + Math.max(2, level * 30 * wave) : 4
         return (
           <motion.span
             key={i}
             className="w-[3px] rounded-full bg-accent/80"
             animate={{ height, opacity: active ? 0.55 + wave * 0.35 : 0.35 }}
-            transition={{ duration: 0.1, ease: 'easeOut' }}
+            transition={{ duration: active ? 0.08 : 0.2, ease: 'easeOut' }}
           />
         )
       })}
