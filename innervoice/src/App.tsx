@@ -4,6 +4,7 @@ import { Sparkles } from 'lucide-react'
 import { cloneVoice, getLastTtsBackend, stripAudioTags, textToSpeech } from './api/elevenlabs'
 import { detectEmotion, getFutureSelfResponse, getGreetingResponse } from './api/openai'
 import { useAuth } from './AuthContext'
+import { isSupabaseConfigured } from './lib/supabase'
 import { AuthScreen } from './components/AuthScreen'
 import { ChatView } from './components/ChatView'
 import { CloningView } from './components/CloningView'
@@ -97,8 +98,8 @@ export default function App() {
   const greetedFor = useRef<string | null>(null)
   const showedV2FallbackWarning = useRef(false)
 
-  const hasElevenLabsKey = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY || import.meta.env.ELEVENLABS_API_KEY)
-  const demoMode = !(import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY)
+  const hasBackend = isSupabaseConfigured
+  const demoMode = !hasBackend
 
   // Sync step with auth/voice state when those external values change.
   useEffect(() => {
@@ -242,8 +243,8 @@ export default function App() {
 
   const visibleError =
     error ??
-    (!hasElevenLabsKey
-      ? 'Missing ElevenLabs API key in .env. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY.'
+    (!hasBackend
+      ? 'Missing Supabase config in .env. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
       : null)
 
   const navigate = useCallback(
@@ -354,8 +355,8 @@ export default function App() {
           {step === 'recording' && (
             <RecordingView
               onUseRecording={async (blob) => {
-                if (!hasElevenLabsKey) {
-                  setError('Missing ElevenLabs key. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY to .env.')
+                if (!hasBackend) {
+                  setError('Missing Supabase config. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.')
                   return
                 }
                 setStep('cloning')
