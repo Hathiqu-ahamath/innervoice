@@ -16,22 +16,21 @@ let mockIndex = 0
 
 export function detectEmotion(text: string): Emotion {
   const value = text.toLowerCase()
-  if (
-    /(sad|depressed|lonely|grief|heartbroken|crying|miss|loss|hurt|hurting|pain|injured|hit|beaten|abused|broken|trauma)/.test(
-      value,
-    )
-  ) {
-    return 'sad'
-  }
-  if (
-    /(anxious|worried|scared|fear|afraid|nervous|panic|stress|overwhelmed|unsafe|threat|attack|attacked|shaking|terrified)/.test(
-      value,
-    )
-  ) {
-    return 'anxious'
-  }
+  if (/(angry|mad|furious|rage|irritated|pissed|annoyed)/.test(value)) return 'angry'
+  if (/(terrified|horrified|fearful|unsafe|threat|danger|attacked|panic|shaking)/.test(value)) return 'fearful'
+  if (/(anxious|worried|scared|fear|afraid|nervous|overthinking)/.test(value)) return 'anxious'
+  if (/(stressed|overwhelmed|burnout|burned out|pressure|drained by work)/.test(value)) return 'stressed'
+  if (/(grief|grieving|heartbroken|funeral|bereaved|loss of|lost my)/.test(value)) return 'grieving'
+  if (/(hurt|hurting|pain|injured|hit|beaten|abused|broken|trauma)/.test(value)) return 'hurt'
+  if (/(sad|depressed|down|empty|crying|tearful)/.test(value)) return 'sad'
+  if (/(lonely|alone|isolated|left out|nobody)/.test(value)) return 'lonely'
+  if (/(confused|lost|unclear|unsure|dont know|don't know|stuck)/.test(value)) return 'confused'
+  if (/(ashamed|embarrassed|humiliated|disgusted with myself)/.test(value)) return 'ashamed'
+  if (/(guilty|regret|my fault|i messed up|i fucked up|i screwed up)/.test(value)) return 'guilty'
+  if (/(tired|exhausted|sleepy|burnt out|fatigued|no energy)/.test(value)) return 'tired'
   if (/(grateful|thankful|appreciate|blessed)/.test(value)) return 'grateful'
-  if (/(hope|hopeful|excited|happy|joy)/.test(value)) return 'hopeful'
+  if (/(excited|thrilled|pumped|cant wait|can't wait)/.test(value)) return 'excited'
+  if (/(hope|hopeful|optimistic|it will get better)/.test(value)) return 'hopeful'
   return 'neutral'
 }
 
@@ -41,6 +40,8 @@ function systemPrompt(messages: Message[]) {
 You speak with warmth, emotional nuance, and natural pacing.
 
 ${V3_TAG_PROMPT_HINT}
+Include at least 1 non-verbal tag in EVERY reply from this set: [clears throat], [sighs], [exhales], [laughs], [chuckles], [short pause].
+For heavy or difficult topics, prefer [clears throat] or [sighs] near the beginning.
 
 Reply structure:
 1. Open with a breath or soft validation (e.g. "[sighs] I hear you...").

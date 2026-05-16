@@ -31,10 +31,32 @@ function apiHeaders(): HeadersInit {
 /** Lower stability = more expressive (Creative). Higher = flatter (Robust). */
 function getV3Stability(emotion: Emotion): number {
   switch (emotion) {
+    case 'fearful':
+      return 0.26
+    case 'stressed':
+      return 0.29
+    case 'grieving':
+      return 0.26
+    case 'hurt':
+      return 0.27
     case 'sad':
       return 0.28
     case 'anxious':
       return 0.3
+    case 'angry':
+      return 0.31
+    case 'confused':
+      return 0.33
+    case 'ashamed':
+      return 0.3
+    case 'guilty':
+      return 0.31
+    case 'lonely':
+      return 0.29
+    case 'tired':
+      return 0.36
+    case 'excited':
+      return 0.34
     case 'hopeful':
       return 0.38
     case 'grateful':

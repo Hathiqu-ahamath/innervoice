@@ -50,6 +50,11 @@ const TAG_ALIASES: Record<string, string | null> = {
   hopeful: 'thoughtful',
   calm: 'thoughtful',
   'warm tone': 'thoughtful',
+  cough: 'clears throat',
+  coughs: 'clears throat',
+  coughing: 'clears throat',
+  'clear throat': 'clears throat',
+  'clearing throat': 'clears throat',
 }
 
 function canonicalizeTag(inner: string): string | null {
@@ -79,4 +84,5 @@ Voice: [sighs] [exhales] [whispers] [laughs] [chuckles] [clears throat]
 Emotion: [curious] [thoughtful] [excited] [sad] [crying] [mischievously] [sarcastic]
 Pauses: [short pause] [long pause]
 Place 2-4 tags before the phrase they modify, e.g. "[sighs] I hear you." or "Stay with me. [exhales]"
+If you want a cough-like effect, use [clears throat].
 Do NOT use [warm], [gentle], [soft sigh], or [deep breath] — they will not work.`
