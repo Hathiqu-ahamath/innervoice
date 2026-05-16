@@ -220,10 +220,23 @@ export function LiveVoiceController() {
 
   const startLiveMode = useCallback(() => {
     setIsLiveMode(true)
+    liveModeRef.current = true
     lastActivityAtRef.current = Date.now()
-    setStatusDetail('Listening...')
-    startListening()
-  }, [startListening])
+    setStatusDetail('Starting...')
+    const openerDisplay = "What's up? I'm listening."
+    const openerSpoken = "[curious] What's up? [short pause] I'm listening."
+    setLatestReply(openerDisplay)
+    void speak({
+      text: openerSpoken,
+      emotion: 'hopeful',
+      voiceId,
+      realtime: true,
+    }).finally(() => {
+      if (!liveModeRef.current) return
+      setStatusDetail('Listening...')
+      startListening()
+    })
+  }, [speak, startListening, voiceId])
 
   const stopLiveMode = useCallback(() => {
     setIsLiveMode(false)
@@ -300,26 +313,36 @@ export function LiveVoiceController() {
 
                 <div className="rounded-2xl border border-border bg-surface-card p-3">
                   <p className="text-xs font-medium text-text-tertiary">Captions</p>
-                  <p
-                    className={`mt-2 rounded-lg border px-3 py-2 text-sm text-text-primary transition ${
-                      isListening
-                        ? 'border-accent/60 bg-accent-soft'
-                        : 'border-border bg-elevated'
-                    }`}
-                  >
-                    <span className="mr-2 text-xs text-text-tertiary">{isListening ? 'Me (listening):' : 'Me:'}</span>
-                    {transcript || lastUserCaption || '...'}
-                  </p>
-                  <p
-                    className={`mt-2 rounded-lg border px-3 py-2 text-sm text-text-primary transition ${
-                      isSpeaking
-                        ? 'border-accent/60 bg-accent-soft'
-                        : 'border-border bg-assistant-bubble'
-                    }`}
-                  >
-                    <span className="mr-2 text-xs text-text-tertiary">{isSpeaking ? 'You (speaking):' : 'You:'}</span>
-                    {latestReply || '...'}
-                  </p>
+                  {(transcript || lastUserCaption || latestReply) ? (
+                    <div className="mt-2 space-y-2">
+                      {(transcript || lastUserCaption) && (
+                        <p
+                          className={`ml-auto max-w-[88%] rounded-2xl border px-3 py-2 text-sm text-text-primary transition ${
+                            isListening
+                              ? 'border-accent/60 bg-accent-soft'
+                              : 'border-border bg-elevated'
+                          }`}
+                        >
+                          {transcript || lastUserCaption}
+                        </p>
+                      )}
+                      {latestReply && (
+                        <p
+                          className={`mr-auto max-w-[88%] rounded-2xl border px-3 py-2 text-sm text-text-primary transition ${
+                            isSpeaking
+                              ? 'border-accent/60 bg-accent-soft'
+                              : 'border-border bg-assistant-bubble'
+                          }`}
+                        >
+                          {latestReply}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-2 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-tertiary">
+                      Start speaking and captions will appear here.
+                    </p>
+                  )}
                 </div>
 
                 {state.lastError && (
