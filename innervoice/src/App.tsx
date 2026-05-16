@@ -257,7 +257,7 @@ export default function App() {
   )
 
   return (
-    <div className="orb-bg tech-grid relative min-h-dvh overflow-x-hidden bg-surface text-text-primary transition-colors duration-300">
+    <div className="orb-bg nebula-bg tech-grid relative min-h-dvh overflow-x-hidden bg-surface text-text-primary transition-colors duration-300">
       <OnboardingOverlay
         open={showOnboarding && isAuthenticated}
         step={onboardingStep}
@@ -300,7 +300,7 @@ export default function App() {
         }}
       />
 
-      <main className="relative z-10 mx-auto flex h-dvh w-full max-w-[1600px] flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-3 lg:px-6">
+      <main className="relative z-10 mx-auto flex h-dvh w-full max-w-[1500px] flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-3 lg:px-6">
         <Navbar
           step={step}
           hasHistory={conversations.length > 0}
@@ -316,7 +316,7 @@ export default function App() {
                 Demo Mode
               </span>
             )}
-            {step === 'chat' && <span className="truncate">{currentConversationTitle}</span>}
+            {step === 'chat' && messages.length > 0 && <span className="truncate">{currentConversationTitle}</span>}
           </div>
         </div>
 
@@ -341,7 +341,11 @@ export default function App() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="glass-panel glow-accent min-h-0 flex-1 overflow-hidden rounded-2xl border border-border p-3 shadow-sm sm:p-4 lg:p-5"
+          className={`min-h-0 flex-1 overflow-hidden ${
+            step === 'chat'
+              ? 'rounded-2xl border border-transparent bg-transparent p-0 shadow-none'
+              : 'glass-panel glow-accent rounded-3xl border border-border/80 p-3 shadow-[0_12px_35px_rgb(0_0_0_/_0.26)] sm:p-4 lg:p-5'
+          }`}
         >
           {step === 'auth' && <AuthScreen />}
           {step === 'home' && (
@@ -392,7 +396,7 @@ export default function App() {
             {step === 'chat' && (
               <button
                 type="button"
-                className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-accent/60 hover:text-text-primary"
+                className="rounded-full border border-border/80 bg-elevated/90 px-3 py-1.5 transition hover:border-accent/60 hover:text-text-primary hover:shadow-[0_0_18px_var(--color-accent-soft)]"
                 onClick={() => {
                   setUserVoiceId(null)
                   setStep('recording')
@@ -405,7 +409,7 @@ export default function App() {
             )}
             <button
               type="button"
-              className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-accent/60 hover:text-text-primary"
+              className="rounded-full border border-border/80 bg-elevated/90 px-3 py-1.5 transition hover:border-accent/60 hover:text-text-primary hover:shadow-[0_0_18px_var(--color-accent-soft)]"
               onClick={resetApp}
             >
               Start over
