@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AudioLines,
-  ChevronDown,
   Clock,
   LogOut,
   Menu,
@@ -12,6 +11,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useAuth } from '../AuthContext'
 import { ProfileAvatar } from './ProfileAvatar'
 import { ThemeToggle } from './ThemeToggle'
@@ -60,11 +60,21 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
   const { user, isAuthenticated, logout } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
+  const [livePressed, setLivePressed] = useState(false)
   const optionsRef = useRef<HTMLDivElement | null>(null)
 
   const go = (next: AppStep) => {
     onNavigate(next)
     setMobileMenuOpen(false)
+  }
+
+  const goLiveWithAnimation = () => {
+    if (!user?.voiceId) return
+    setLivePressed(true)
+    window.setTimeout(() => {
+      go('live')
+      setLivePressed(false)
+    }, 240)
   }
 
   const openHistory = () => {
@@ -126,20 +136,39 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
         </div>
 
         {isAuthenticated ? (
-          <button
+          <motion.button
             type="button"
-            onClick={() => go('live')}
+            onClick={goLiveWithAnimation}
             disabled={!user?.voiceId}
+            whileHover={user?.voiceId ? { y: -2, scale: 1.03 } : {}}
+            whileTap={user?.voiceId ? { scale: 0.98 } : {}}
+            animate={
+              livePressed
+                ? { scale: 1.13, boxShadow: '0 0 30px var(--color-accent-soft)' }
+                : { scale: 1, boxShadow: '0 0 0px transparent' }
+            }
+            transition={{ duration: 0.18, ease: 'easeOut' }}
             className={`mx-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-medium transition sm:px-3 ${
               step === 'live'
                 ? 'border-accent/60 bg-accent-soft text-text-primary shadow-[0_0_18px_var(--color-accent-soft)]'
                 : 'border-border/80 bg-elevated/90 text-text-secondary hover:border-accent/60 hover:text-text-primary hover:shadow-[0_0_16px_var(--color-accent-soft)]'
             } disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            <BreathingVoiceOrb state={step === 'live' ? 'speaking' : 'listening'} emotion="hopeful" level={0.22} size={28} />
+            <motion.div
+              whileHover={{ rotate: 22, scale: 1.06 }}
+              animate={step === 'live' ? { rotate: [0, 14, 0, -14, 0] } : {}}
+              transition={step === 'live' ? { duration: 2.4, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
+            >
+              <BreathingVoiceOrb
+                state={step === 'live' ? 'speaking' : 'listening'}
+                emotion="hopeful"
+                level={0.22}
+                size={28}
+              />
+            </motion.div>
             <span className="hidden sm:inline">Open Live Chat</span>
             <span className="sm:hidden">Live</span>
-          </button>
+          </motion.button>
         ) : (
           <div />
         )}
@@ -167,61 +196,67 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
                   <button
                     type="button"
                     onClick={() => setOptionsOpen((prev) => !prev)}
-                    className="inline-flex h-10 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/90 px-3.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-elevated/90 text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
                     aria-expanded={optionsOpen}
                     aria-haspopup="menu"
+                    aria-label="Open options menu"
                   >
-                    Options
-                    <ChevronDown size={14} className={`transition ${optionsOpen ? 'rotate-180' : ''}`} />
+                    <Menu size={16} />
                   </button>
-                  {optionsOpen && (
-                    <div
-                      role="menu"
-                      className="glass-panel absolute right-0 top-12 z-40 flex min-w-[190px] flex-col gap-1 rounded-2xl border border-border/80 p-2 shadow-[0_12px_35px_rgb(0_0_0_/_0.3)]"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          openProfile()
-                          setOptionsOpen(false)
-                        }}
-                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                  <AnimatePresence>
+                    {optionsOpen && (
+                      <motion.div
+                        role="menu"
+                        initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                        className="glass-panel absolute right-0 top-12 z-40 flex min-w-[190px] flex-col gap-1 rounded-2xl border border-border/80 p-2 shadow-[0_12px_35px_rgb(0_0_0_/_0.3)]"
                       >
-                        <User size={14} /> Profile
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          openHistory()
-                          setOptionsOpen(false)
-                        }}
-                        disabled={!hasHistory}
-                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary disabled:opacity-40"
-                      >
-                        <Clock size={14} /> History
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          go('recording')
-                          setOptionsOpen(false)
-                        }}
-                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
-                      >
-                        <Mic2 size={14} /> Voice Train
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          logOut()
-                          setOptionsOpen(false)
-                        }}
-                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
-                      >
-                        <LogOut size={14} /> Log out
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openProfile()
+                            setOptionsOpen(false)
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                        >
+                          <User size={14} /> Profile
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openHistory()
+                            setOptionsOpen(false)
+                          }}
+                          disabled={!hasHistory}
+                          className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary disabled:opacity-40"
+                        >
+                          <Clock size={14} /> History
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            go('recording')
+                            setOptionsOpen(false)
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                        >
+                          <Mic2 size={14} /> Voice Train
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            logOut()
+                            setOptionsOpen(false)
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                        >
+                          <LogOut size={14} /> Log out
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </>
             )}
