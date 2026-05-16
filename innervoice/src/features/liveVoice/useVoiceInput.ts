@@ -10,14 +10,18 @@ interface UseVoiceInputOptions {
 
 // We use silence detection to stop early when it works, but otherwise fall
 // back to a fixed cap so capture never gets stuck.
-const SPEECH_RMS_THRESHOLD = 0.012
-const MIN_UTTERANCE_MS = 700
-const SILENCE_AFTER_SPEECH_MS = 800
-const MAX_UTTERANCE_MS = 5800
+const SPEECH_RMS_THRESHOLD = 0.011
+// Short utterances like "yeah" or "I'm scared" need to survive too.
+const MIN_UTTERANCE_MS = 520
+// People naturally pause mid-thought. Don't chop them off after a short
+// breath -- wait a real beat before we decide they're done.
+const SILENCE_AFTER_SPEECH_MS = 1100
+// Allow longer, full thoughts before the hard cap kicks in.
+const MAX_UTTERANCE_MS = 9000
 // Even without speech detection, we transcribe if the chunk has reasonable
 // audio data. Whisper is fine with silence – it just returns empty text – but
 // keeping a floor avoids hammering the API with 0-byte blobs.
-const MIN_BLOB_BYTES = 1500
+const MIN_BLOB_BYTES = 1100
 
 function nowMs() {
   return Date.now()

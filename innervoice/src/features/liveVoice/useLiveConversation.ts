@@ -28,9 +28,10 @@ export function useLiveConversation() {
       try {
         const userMessage = createUserMessage(trimmed)
         const baseHistory = [...conversationHistory, userMessage]
-        // Keep a compact context window in live mode for faster response.
-        const fastContext = baseHistory.slice(-8)
-        const assistant = await createAssistantMessage(fastContext)
+        // Wider window so the future self remembers the arc of the
+        // conversation, not just the last two exchanges.
+        const liveContext = baseHistory.slice(-14)
+        const assistant = await createAssistantMessage(liveContext)
         const nextHistory = [...baseHistory, assistant.raw]
         setConversationHistory(nextHistory)
         return {
