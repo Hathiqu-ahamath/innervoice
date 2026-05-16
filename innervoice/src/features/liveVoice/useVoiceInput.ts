@@ -60,6 +60,8 @@ export function useVoiceInput({
   const recorderRef = useRef<MediaRecorder | null>(null)
   const silenceTimerRef = useRef<number | null>(null)
   const hardStopTimerRef = useRef<number | null>(null)
+  const watchdogTimerRef = useRef<number | null>(null)
+  const lastCycleStartRef = useRef(0)
   const runningRef = useRef(false)
   const cycleIdRef = useRef(0)
   const inputLevelRef = useRef(0)
@@ -99,6 +101,13 @@ export function useVoiceInput({
     }
   }, [])
 
+  const clearWatchdog = useCallback(() => {
+    if (watchdogTimerRef.current !== null) {
+      window.clearInterval(watchdogTimerRef.current)
+      watchdogTimerRef.current = null
+    }
+  }, [])
+
   const stopMeter = useCallback(() => {
     if (meterRafRef.current !== null) {
       cancelAnimationFrame(meterRafRef.current)
@@ -124,6 +133,7 @@ export function useVoiceInput({
     runningRef.current = false
     cycleIdRef.current += 1
     clearTimers()
+    clearWatchdog()
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       try {
         recorderRef.current.stop()
@@ -137,7 +147,7 @@ export function useVoiceInput({
     stopMeter()
     setIsListening(false)
     setTranscript('')
-  }, [clearTimers, stopMeter])
+  }, [clearTimers, clearWatchdog, stopMeter])
 
   useEffect(() => () => stopListening(), [stopListening])
 
@@ -150,13 +160,28 @@ export function useVoiceInput({
     try {
       runningRef.current = true
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
+      // Important: use plain `audio: true` first. Some Windows mic drivers
+      // mute the captured stream when noiseSuppression is forced on, which
+      // produced silent blobs that Whisper transcribed as empty -- that's
+      // what made the live mic look "broken" while the chat mic kept working.
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (initialErr) {
+        // Some browsers require an explicit constraints object; fall back to
+        // a permissive one before giving up.
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: { ideal: true },
+              noiseSuppression: { ideal: false },
+              autoGainControl: { ideal: true },
+            },
+          })
+        } catch {
+          throw initialErr
+        }
+      }
       streamRef.current = stream
       setIsListening(true)
 
@@ -226,6 +251,7 @@ export function useVoiceInput({
         recorderRef.current = recorder
         const chunks: BlobPart[] = []
         const startedAt = nowMs()
+        lastCycleStartRef.current = startedAt
         let speechDetected = false
         let lastSpeechAt = startedAt
         let stopped = false
@@ -255,15 +281,22 @@ export function useVoiceInput({
             window.setTimeout(() => runCycle(cycleId), 40)
           }
 
-          // ALWAYS attempt transcription on a meaningful blob. Whisper will
-          // return empty text for silent chunks, which we filter below. This
-          // is the change that fixes the mobile + flaky mic capture issue.
-          if (blob.size < MIN_BLOB_BYTES) return
+          if (blob.size < MIN_BLOB_BYTES) {
+            // Dev hint – mic produced no real audio. This is what we want to
+            // see in the console if the mic constraints silenced the stream.
+            // eslint-disable-next-line no-console
+            console.debug('[live-voice] empty chunk', { size: blob.size, mime: blob.type })
+            return
+          }
 
           transcribeAudio(blob)
             .then((text) => {
               const trimmed = text.trim()
-              if (!trimmed) return
+              if (!trimmed) {
+                // eslint-disable-next-line no-console
+                console.debug('[live-voice] empty transcript', { size: blob.size })
+                return
+              }
               onActivityRef.current?.()
               setTranscript(trimmed)
               Promise.resolve(onFinalTranscriptRef.current(trimmed))
@@ -272,6 +305,8 @@ export function useVoiceInput({
             })
             .catch((err) => {
               const message = err instanceof Error ? err.message : 'Live transcription failed.'
+              // eslint-disable-next-line no-console
+              console.warn('[live-voice] transcribe failed', message)
               if (!/too short|no speech detected|recording too short/i.test(message)) {
                 onErrorRef.current?.(message)
               }
@@ -324,6 +359,25 @@ export function useVoiceInput({
       }
 
       runCycle(myCycleId)
+
+      // Watchdog: if a cycle ever gets wedged (recorder never fires onstop,
+      // chunks never accumulate, etc.) we restart the whole mic from scratch.
+      // This is the safety net that makes "voice input not working again"
+      // self-heal instead of needing a page reload.
+      clearWatchdog()
+      watchdogTimerRef.current = window.setInterval(() => {
+        if (!runningRef.current) return
+        const since = nowMs() - lastCycleStartRef.current
+        if (since > 14000) {
+          // eslint-disable-next-line no-console
+          console.warn('[live-voice] watchdog: capture stalled, restarting mic')
+          stopListening()
+          // Re-arm after a tick so React state settles.
+          window.setTimeout(() => {
+            if (!streamRef.current) void startListening()
+          }, 150)
+        }
+      }, 4000)
     } catch (err) {
       runningRef.current = false
       setIsListening(false)

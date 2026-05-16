@@ -389,14 +389,17 @@ export function LiveVoiceController() {
     return 'neutral'
   }, [state.conversationHistory])
 
-  const [orbSize, setOrbSize] = useState(280)
+  const [orbSize, setOrbSize] = useState(240)
   useEffect(() => {
     if (typeof window === 'undefined') return
     const handler = () => {
       const w = window.innerWidth
-      if (w < 480) setOrbSize(200)
-      else if (w < 768) setOrbSize(240)
-      else setOrbSize(300)
+      const h = window.innerHeight
+      // Pick the smaller of width-based and height-based sizing so the orb
+      // never pushes the captions + controls off-screen.
+      const byWidth = w < 480 ? 180 : w < 768 ? 220 : 260
+      const byHeight = Math.max(140, Math.min(280, Math.floor(h * 0.32)))
+      setOrbSize(Math.min(byWidth, byHeight))
     }
     handler()
     window.addEventListener('resize', handler)
@@ -442,7 +445,7 @@ export function LiveVoiceController() {
                 </button>
               </div>
 
-              <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col justify-center gap-3 overflow-y-auto px-3 py-4 sm:gap-4 sm:px-5 sm:py-6">
+              <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col justify-start gap-3 overflow-y-auto px-3 py-4 sm:gap-4 sm:px-5 sm:py-6">
                 <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-3 shadow-[0_10px_40px_rgba(0,0,0,0.08)] sm:p-4">
                   <div className="flex items-center justify-center">
                     <BreathingVoiceOrb
@@ -506,13 +509,17 @@ export function LiveVoiceController() {
                     {state.lastError}
                   </p>
                 )}
+              </div>
 
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <span className="text-xs text-text-tertiary">{state.conversationHistory.length} turns in memory</span>
+              <div className="shrink-0 border-t border-border bg-surface-card/60 px-4 py-2 backdrop-blur-sm sm:px-5 sm:py-3">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-xs text-text-tertiary">
+                    {state.conversationHistory.length} turns in memory
+                  </span>
                   <button
                     type="button"
                     onClick={isSessionActive ? endSession : startSession}
-                    className="inline-flex min-h-10 items-center justify-center gap-1 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+                    className="inline-flex min-h-10 items-center justify-center gap-1 self-end rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary sm:self-auto"
                   >
                     <PhoneOff size={12} />
                     {isSessionActive ? 'End Session' : 'Start Session'}
