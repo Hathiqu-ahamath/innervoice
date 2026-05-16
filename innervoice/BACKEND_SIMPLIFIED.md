@@ -6,6 +6,7 @@ This project now uses a simple backend model:
 2. `profiles` table for user profile and `voice_id`.
 3. `conversations` + `messages` tables for chat history.
 4. Frontend uses only Supabase as source of truth (no conversation localStorage fallback).
+5. OpenAI/ElevenLabs requests go through Supabase Edge Function `ai-gateway`.
 
 ## Key files
 
@@ -13,6 +14,7 @@ This project now uses a simple backend model:
 - `src/AuthContext.tsx` - Auth + profile read/write.
 - `src/hooks/useConversations.ts` - conversation/message read/write.
 - `supabase/migrations/20260517021900_init_innervoice.sql` - DB schema + RLS.
+- `supabase/functions/ai-gateway/index.ts` - secure AI gateway.
 
 ## Environment
 
@@ -20,6 +22,11 @@ Required in `.env`:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+
+Server-only Supabase secrets (set via CLI/dashboard, not frontend `.env`):
+
+- `OPENAI_API_KEY`
+- `ELEVENLABS_API_KEY`
 
 ## Troubleshooting
 
@@ -39,5 +46,7 @@ From repo root:
 ```bash
 npx supabase link --project-ref sfkjycsvkhkcxoabcyjo
 npx supabase db push
+npx supabase secrets set OPENAI_API_KEY=... ELEVENLABS_API_KEY=...
+npx supabase functions deploy ai-gateway
 ```
 

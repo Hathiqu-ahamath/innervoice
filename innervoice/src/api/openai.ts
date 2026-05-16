@@ -1,10 +1,7 @@
 import type { Emotion, Message } from '../types'
 import { V3_TAG_PROMPT_HINT } from '../lib/elevenV3Tags'
-
-const OPENAI_BASE_URL = 'https://api.openai.com/v1/chat/completions'
-const OPENAI_KEY =
-  (import.meta.env.VITE_OPENAI_API_KEY as string | undefined) ||
-  (import.meta.env.OPENAI_API_KEY as string | undefined)
+import { isSupabaseConfigured } from '../lib/supabase'
+import { invokeGateway } from './backendGateway'
 
 const MOCK_RESPONSES = [
   '[softly] Mm. I can hear how heavy this feels. [short pause] You do not need to solve the whole thing right now; just choose one small next move.',
@@ -72,53 +69,34 @@ Current emotional context: ${recentEmotion}.`
 }
 
 export async function getFutureSelfResponse(messages: Message[]): Promise<string> {
-  if (!OPENAI_KEY) {
+  if (!isSupabaseConfigured) {
     const response = MOCK_RESPONSES[mockIndex % MOCK_RESPONSES.length]
     mockIndex += 1
     return response
   }
 
-  const response = await fetch(OPENAI_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_KEY}`,
-    },
-    body: JSON.stringify({
+  const data = await invokeGateway<{ content: string }>('chatCompletion', {
+    request: {
       model: 'gpt-4o',
       temperature: 0.85,
       messages: [
         { role: 'system', content: systemPrompt(messages) },
         ...messages.map((msg) => ({ role: msg.role, content: msg.text })),
       ],
-    }),
+    },
   })
-
-  if (!response.ok) {
-    throw new Error('OpenAI request failed. Check VITE_OPENAI_API_KEY or OPENAI_API_KEY.')
-  }
-
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-
-  return data.choices?.[0]?.message?.content?.trim() ?? '[thoughtful] I am here with you. Tell me more.'
+  return data.content?.trim() || '[thoughtful] I am here with you. Tell me more.'
 }
 
 export async function getFutureSelfResponseFast(messages: Message[]): Promise<string> {
-  if (!OPENAI_KEY) {
+  if (!isSupabaseConfigured) {
     const response = MOCK_RESPONSES[mockIndex % MOCK_RESPONSES.length]
     mockIndex += 1
     return response
   }
 
-  const response = await fetch(OPENAI_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_KEY}`,
-    },
-    body: JSON.stringify({
+  const data = await invokeGateway<{ content: string }>('chatCompletion', {
+    request: {
       model: 'gpt-4o-mini',
       temperature: 0.7,
       max_tokens: 120,
@@ -126,17 +104,9 @@ export async function getFutureSelfResponseFast(messages: Message[]): Promise<st
         { role: 'system', content: systemPrompt(messages) },
         ...messages.map((msg) => ({ role: msg.role, content: msg.text })),
       ],
-    }),
+    },
   })
-
-  if (!response.ok) {
-    throw new Error('OpenAI request failed. Check VITE_OPENAI_API_KEY or OPENAI_API_KEY.')
-  }
-
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-  return data.choices?.[0]?.message?.content?.trim() ?? '[thoughtful] I am here with you. Tell me more.'
+  return data.content?.trim() || '[thoughtful] I am here with you. Tell me more.'
 }
 
 /**
@@ -178,19 +148,14 @@ Current emotional context of the past-self you're talking to: ${recentEmotion}.`
 }
 
 export async function getLiveFutureSelfResponse(messages: Message[]): Promise<string> {
-  if (!OPENAI_KEY) {
+  if (!isSupabaseConfigured) {
     const response = MOCK_RESPONSES[mockIndex % MOCK_RESPONSES.length]
     mockIndex += 1
     return response
   }
 
-  const response = await fetch(OPENAI_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_KEY}`,
-    },
-    body: JSON.stringify({
+  const data = await invokeGateway<{ content: string }>('chatCompletion', {
+    request: {
       model: 'gpt-4o',
       temperature: 0.85,
       max_tokens: 220,
@@ -200,20 +165,9 @@ export async function getLiveFutureSelfResponse(messages: Message[]): Promise<st
         { role: 'system', content: liveFutureSelfSystemPrompt(messages) },
         ...messages.map((msg) => ({ role: msg.role, content: msg.text })),
       ],
-    }),
+    },
   })
-
-  if (!response.ok) {
-    throw new Error('OpenAI request failed. Check VITE_OPENAI_API_KEY or OPENAI_API_KEY.')
-  }
-
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-  return (
-    data.choices?.[0]?.message?.content?.trim() ??
-    '[softly] I am right here. [short pause] Tell me what is sitting on you.'
-  )
+  return data.content?.trim() || '[softly] I am right here. [short pause] Tell me what is sitting on you.'
 }
 
 export async function getGreetingResponse(userName?: string): Promise<string> {
@@ -221,18 +175,13 @@ export async function getGreetingResponse(userName?: string): Promise<string> {
     ? `[softly] Hey ${userName}. [warm] I'm right here. [short pause] Take your time; we can start wherever you are.`
     : `[softly] Hey. [warm] I'm right here. [short pause] Take your time; we can start wherever you are.`
 
-  if (!OPENAI_KEY) {
+  if (!isSupabaseConfigured) {
     return fallback
   }
 
   try {
-    const response = await fetch(OPENAI_BASE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_KEY}`,
-      },
-      body: JSON.stringify({
+    const data = await invokeGateway<{ content: string }>('chatCompletion', {
+      request: {
         model: 'gpt-4o',
         temperature: 0.9,
         messages: [
@@ -246,14 +195,9 @@ Use one or two natural voice tags like [softly], [warm], or [short pause].
           },
           { role: 'user', content: 'Greet me now.' },
         ],
-      }),
+      },
     })
-
-    if (!response.ok) return fallback
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
-    }
-    return data.choices?.[0]?.message?.content?.trim() ?? fallback
+    return data.content?.trim() ?? fallback
   } catch {
     return fallback
   }
