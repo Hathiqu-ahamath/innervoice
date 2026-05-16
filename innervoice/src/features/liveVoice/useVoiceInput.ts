@@ -1,6 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { transcribeAudio } from '../../api/speechToText'
 
+const DEBUG_ENDPOINT = 'http://127.0.0.1:7557/ingest/69d83c9c-05f0-432b-b66d-2c89382c215d'
+const DEBUG_SESSION_ID = '0d719b'
+const DEBUG_RUN_ID = 'livechat-initial'
+
+function debugLog(location: string, message: string, hypothesisId: string, data: Record<string, unknown>) {
+  fetch(DEBUG_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': DEBUG_SESSION_ID },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: DEBUG_RUN_ID,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+}
+
 interface UseVoiceInputOptions {
   onFinalTranscript: (text: string) => void | Promise<void>
   onSpeechStart?: () => void
@@ -43,6 +63,8 @@ export function useVoiceInput({
   const lastAudioAtRef  = useRef(0)
   const recordStartRef  = useRef(0)
   const stoppingRef     = useRef(false)
+  /** Pause for TTS without tearing down the mic stream (live fillers / replies). */
+  const capturePausedRef = useRef(false)
 
   // Stable callback refs — never cause stale closures.
   const onFinalRef   = useRef(onFinalTranscript)
@@ -79,6 +101,7 @@ export function useVoiceInput({
 
   const stopListening = useCallback(() => {
     runningRef.current = false
+    capturePausedRef.current = false
     sessionIdRef.current += 1
     clearTimers()
     stopRecorder()
@@ -89,6 +112,20 @@ export function useVoiceInput({
     setIsListening(false)
     setTranscript('')
   }, [clearTimers, stopMeter, stopRecorder])
+
+  /** Stop the current utterance capture but keep the mic stream alive. */
+  const pauseCapture = useCallback(() => {
+    if (!runningRef.current) return
+    capturePausedRef.current = true
+    clearTimers()
+    stopRecorder()
+    // #region agent log
+    debugLog('src/features/liveVoice/useVoiceInput.ts:pause-capture', 'Capture paused for TTS', 'H1,H3', {
+      sid: sessionIdRef.current,
+      hasStream: Boolean(streamRef.current),
+    })
+    // #endregion
+  }, [clearTimers, stopRecorder])
 
   // Start the AudioContext meter on the stream (called once per session).
   const startMeter = useCallback((stream: MediaStream, sid: number) => {
@@ -148,7 +185,24 @@ export function useVoiceInput({
       setIsListening(false)
       if (!runningRef.current || sessionIdRef.current !== sid) return
 
+      if (capturePausedRef.current) {
+        capturePausedRef.current = false
+        // #region agent log
+        debugLog('src/features/liveVoice/useVoiceInput.ts:recorder-paused-stop', 'Recorder stopped while paused (no transcribe)', 'H1,H3', { sid })
+        // #endregion
+        return
+      }
+
       const blob = new Blob(chunks, { type: 'audio/webm' })
+      // #region agent log
+      debugLog('src/features/liveVoice/useVoiceInput.ts:recorder-stop', 'Recorder stopped with blob', 'H1,H3,H5', {
+        blobSize: blob.size,
+        chunkCount: chunks.length,
+        durationMs: Date.now() - recordStartRef.current,
+        sid,
+        running: runningRef.current,
+      })
+      // #endregion
 
       if (blob.size < MIN_BLOB_BYTES) {
         onSilentRef.current?.()
@@ -160,6 +214,12 @@ export function useVoiceInput({
       try {
         const text = await transcribeAudio(blob)
         const trimmed = text.trim()
+        // #region agent log
+        debugLog('src/features/liveVoice/useVoiceInput.ts:transcription-result', 'Transcription returned', 'H1,H5', {
+          textLength: trimmed.length,
+          preview: trimmed.slice(0, 80),
+        })
+        // #endregion
         if (trimmed) {
           setTranscript(trimmed)
           await Promise.resolve(onFinalRef.current(trimmed))
@@ -207,6 +267,12 @@ export function useVoiceInput({
 
     runningRef.current = true
     const sid = ++sessionIdRef.current
+    // #region agent log
+    debugLog('src/features/liveVoice/useVoiceInput.ts:start-listening', 'Mic listening started', 'H1,H3', {
+      sid,
+      hasExistingStream: Boolean(streamRef.current),
+    })
+    // #endregion
 
     let stream: MediaStream
     try {
@@ -229,7 +295,36 @@ export function useVoiceInput({
     startCycle(stream, sid)
   }, [startCycle, startMeter])
 
+  /** Resume capture on the existing stream after TTS. */
+  const resumeCapture = useCallback(() => {
+    const stream = streamRef.current
+    const sid = sessionIdRef.current
+    if (!runningRef.current || !stream) {
+      // #region agent log
+      debugLog('src/features/liveVoice/useVoiceInput.ts:resume-capture-fallback', 'Resume fell back to startListening', 'H1,H3', {
+        running: runningRef.current,
+        hasStream: Boolean(stream),
+      })
+      // #endregion
+      void startListening()
+      return
+    }
+    // #region agent log
+    debugLog('src/features/liveVoice/useVoiceInput.ts:resume-capture', 'Capture resumed on existing stream', 'H1,H3', { sid })
+    // #endregion
+    startCycle(stream, sid)
+  }, [startCycle, startListening])
+
   useEffect(() => () => stopListening(), [stopListening])
 
-  return { isSupported, isListening, transcript, inputLevel, startListening, stopListening }
+  return {
+    isSupported,
+    isListening,
+    transcript,
+    inputLevel,
+    startListening,
+    stopListening,
+    pauseCapture,
+    resumeCapture,
+  }
 }

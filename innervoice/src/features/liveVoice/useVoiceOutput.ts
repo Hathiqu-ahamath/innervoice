@@ -2,6 +2,26 @@ import { useCallback, useRef, useState } from 'react'
 import { stripAudioTags, textToSpeech } from '../../api/elevenlabs'
 import type { Emotion } from '../../types'
 
+const DEBUG_ENDPOINT = 'http://127.0.0.1:7557/ingest/69d83c9c-05f0-432b-b66d-2c89382c215d'
+const DEBUG_SESSION_ID = '0d719b'
+const DEBUG_RUN_ID = 'livechat-initial'
+
+function debugLog(location: string, message: string, hypothesisId: string, data: Record<string, unknown>) {
+  fetch(DEBUG_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': DEBUG_SESSION_ID },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: DEBUG_RUN_ID,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+}
+
 interface SpeakInput {
   text: string
   emotion: Emotion
@@ -110,12 +130,35 @@ export function useVoiceOutput() {
       setIsSpeaking(true)
 
       if (voiceId) {
+        const ttsStartedAt = Date.now()
+        // #region agent log
+        debugLog('src/features/liveVoice/useVoiceOutput.ts:speak-tts-start', 'TTS request started', 'H2,H4', {
+          textLength: stripAudioTags(text).length,
+          realtime,
+          emotion,
+          hasVoiceId: Boolean(voiceId),
+        })
+        // #endregion
         const audioBlob = await textToSpeech(text, voiceId, emotion, { realtime })
+        // #region agent log
+        debugLog('src/features/liveVoice/useVoiceOutput.ts:speak-tts-ready', 'TTS audio blob ready', 'H2,H4', {
+          elapsedMs: Date.now() - ttsStartedAt,
+          size: audioBlob.size,
+          type: audioBlob.type,
+          realtime,
+        })
+        // #endregion
         await new Promise<void>((resolve) => {
           const audio = new Audio(URL.createObjectURL(audioBlob))
           audioRef.current = audio
           startAudioElementMeter()
           audio.onended = () => {
+            // #region agent log
+            debugLog('src/features/liveVoice/useVoiceOutput.ts:audio-ended', 'Audio playback ended', 'H2,H4', {
+              realtime,
+              elapsedMs: Date.now() - ttsStartedAt,
+            })
+            // #endregion
             URL.revokeObjectURL(audio.src)
             audioRef.current = null
             stopMeters()
@@ -123,12 +166,24 @@ export function useVoiceOutput() {
             resolve()
           }
           audio.onerror = () => {
+            // #region agent log
+            debugLog('src/features/liveVoice/useVoiceOutput.ts:audio-error', 'Audio playback errored', 'H4', {
+              realtime,
+              elapsedMs: Date.now() - ttsStartedAt,
+            })
+            // #endregion
             audioRef.current = null
             stopMeters()
             setIsSpeaking(false)
             resolve()
           }
           void audio.play().catch(() => {
+            // #region agent log
+            debugLog('src/features/liveVoice/useVoiceOutput.ts:audio-play-rejected', 'Audio play promise rejected', 'H4', {
+              realtime,
+              elapsedMs: Date.now() - ttsStartedAt,
+            })
+            // #endregion
             audioRef.current = null
             stopMeters()
             setIsSpeaking(false)
