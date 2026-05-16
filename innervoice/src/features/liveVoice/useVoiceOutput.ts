@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
-import { stripAudioTags, textToSpeech } from '../../api/elevenlabs'
+import { stripAudioTags } from '../../api/elevenlabs'
 import type { Emotion } from '../../types'
+import { fetchLiveSpeechBlob } from './liveTts'
 
 interface SpeakInput {
   text: string
   emotion: Emotion
   voiceId: string | null
-  realtime?: boolean
+  /** Pre-fetched audio from an earlier parallel request (live pipeline). */
+  prefetchedBlob?: Blob | null
 }
 
 export function useVoiceOutput() {
@@ -14,87 +16,67 @@ export function useVoiceOutput() {
   const [outputLevel, setOutputLevel] = useState(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null)
   const meterRafRef = useRef<number | null>(null)
-  const synthMeterRef = useRef<number | null>(null)
+  const meterCtxRef = useRef<AudioContext | null>(null)
+  const meterSourceRef = useRef<MediaElementAudioSourceNode | null>(null)
 
   const stopMeters = useCallback(() => {
     if (meterRafRef.current !== null) {
       cancelAnimationFrame(meterRafRef.current)
       meterRafRef.current = null
     }
-    if (synthMeterRef.current !== null) {
-      window.clearInterval(synthMeterRef.current)
-      synthMeterRef.current = null
-    }
-    if (sourceRef.current) {
+    if (meterSourceRef.current) {
       try {
-        sourceRef.current.disconnect()
+        meterSourceRef.current.disconnect()
       } catch {
         // noop
       }
-      sourceRef.current = null
+      meterSourceRef.current = null
     }
-    if (analyserRef.current) {
-      try {
-        analyserRef.current.disconnect()
-      } catch {
-        // noop
-      }
-      analyserRef.current = null
-    }
-    if (audioContextRef.current) {
-      void audioContextRef.current.close().catch(() => {})
-      audioContextRef.current = null
+    if (meterCtxRef.current) {
+      void meterCtxRef.current.close().catch(() => {})
+      meterCtxRef.current = null
     }
     setOutputLevel(0)
   }, [])
 
-  const startAudioElementMeter = useCallback(() => {
-    const audio = audioRef.current
-    if (!audio) return
-    stopMeters()
-    const context = new AudioContext()
-    const analyser = context.createAnalyser()
-    analyser.fftSize = 128
-    const source = context.createMediaElementSource(audio)
-    source.connect(analyser)
-    analyser.connect(context.destination)
-
-    audioContextRef.current = context
-    analyserRef.current = analyser
-    sourceRef.current = source
-
-    const data = new Uint8Array(analyser.frequencyBinCount)
-    const tick = () => {
-      if (!analyserRef.current) return
-      analyser.getByteTimeDomainData(data)
-      let sum = 0
-      for (let i = 0; i < data.length; i += 1) {
-        const n = (data[i] - 128) / 128
-        sum += n * n
+  const attachMeter = useCallback((audio: HTMLAudioElement) => {
+    try {
+      const Ctx: typeof AudioContext =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new Ctx()
+      void ctx.resume().catch(() => {})
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 128
+      const source = ctx.createMediaElementSource(audio)
+      source.connect(analyser)
+      analyser.connect(ctx.destination)
+      meterCtxRef.current = ctx
+      meterSourceRef.current = source
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        if (!meterCtxRef.current) return
+        analyser.getByteTimeDomainData(data)
+        let sum = 0
+        for (let i = 0; i < data.length; i += 1) {
+          const n = (data[i] - 128) / 128
+          sum += n * n
+        }
+        setOutputLevel(Math.min(1, Math.sqrt(sum / data.length) * 4))
+        meterRafRef.current = requestAnimationFrame(tick)
       }
-      const rms = Math.sqrt(sum / data.length)
-      setOutputLevel(Math.min(1, rms * 4))
       meterRafRef.current = requestAnimationFrame(tick)
+    } catch {
+      setOutputLevel(0.4)
     }
-    meterRafRef.current = requestAnimationFrame(tick)
-  }, [stopMeters])
-
-  const startSyntheticMeter = useCallback(() => {
-    stopMeters()
-    let phase = 0
-    synthMeterRef.current = window.setInterval(() => {
-      phase += 0.28
-      const wave = (Math.sin(phase) + 1) / 2
-      setOutputLevel(0.25 + wave * 0.55)
-    }, 70)
-  }, [stopMeters])
+  }, [])
 
   const stopSpeaking = useCallback(() => {
     audioRef.current?.pause()
+    if (audioRef.current?.src.startsWith('blob:')) {
+      URL.revokeObjectURL(audioRef.current.src)
+    }
     audioRef.current = null
     if (utteranceRef.current) {
       window.speechSynthesis.cancel()
@@ -104,63 +86,80 @@ export function useVoiceOutput() {
     setIsSpeaking(false)
   }, [stopMeters])
 
+  const playBlob = useCallback(
+    async (blob: Blob) => {
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audioRef.current = audio
+
+      await new Promise<void>((resolve, reject) => {
+        audio.onended = () => {
+          URL.revokeObjectURL(url)
+          audioRef.current = null
+          stopMeters()
+          setIsSpeaking(false)
+          resolve()
+        }
+        audio.onerror = () => {
+          URL.revokeObjectURL(url)
+          audioRef.current = null
+          stopMeters()
+          setIsSpeaking(false)
+          reject(new Error('Audio playback failed in the browser.'))
+        }
+        void audio
+          .play()
+          .then(() => attachMeter(audio))
+          .catch((err) => {
+            URL.revokeObjectURL(url)
+            audioRef.current = null
+            stopMeters()
+            setIsSpeaking(false)
+            reject(err instanceof Error ? err : new Error('Could not play voice audio.'))
+          })
+      })
+    },
+    [attachMeter, stopMeters],
+  )
+
   const speak = useCallback(
-    async ({ text, emotion, voiceId, realtime = false }: SpeakInput) => {
+    async ({ text, emotion, voiceId, prefetchedBlob }: SpeakInput) => {
       stopSpeaking()
       setIsSpeaking(true)
 
       if (voiceId) {
-        const audioBlob = await textToSpeech(text, voiceId, emotion, { realtime })
-        await new Promise<void>((resolve) => {
-          const audio = new Audio(URL.createObjectURL(audioBlob))
-          audioRef.current = audio
-          startAudioElementMeter()
-          audio.onended = () => {
-            URL.revokeObjectURL(audio.src)
-            audioRef.current = null
-            stopMeters()
-            setIsSpeaking(false)
-            resolve()
-          }
-          audio.onerror = () => {
-            audioRef.current = null
-            stopMeters()
-            setIsSpeaking(false)
-            resolve()
-          }
-          void audio.play().catch(() => {
-            audioRef.current = null
-            stopMeters()
-            setIsSpeaking(false)
-            resolve()
-          })
-        })
+        const blob =
+          prefetchedBlob && prefetchedBlob.size >= 200
+            ? prefetchedBlob
+            : await fetchLiveSpeechBlob(text, voiceId, emotion)
+        await playBlob(blob)
         return
       }
 
       const fallback = stripAudioTags(text)
-      await new Promise<void>((resolve) => {
+      if (!fallback.trim()) {
+        setIsSpeaking(false)
+        throw new Error('Nothing to speak.')
+      }
+
+      await new Promise<void>((resolve, reject) => {
         const utterance = new SpeechSynthesisUtterance(fallback)
         utteranceRef.current = utterance
-        startSyntheticMeter()
         utterance.rate = 0.96
-        utterance.pitch = 1
         utterance.onend = () => {
           utteranceRef.current = null
-          stopMeters()
           setIsSpeaking(false)
           resolve()
         }
         utterance.onerror = () => {
           utteranceRef.current = null
-          stopMeters()
           setIsSpeaking(false)
-          resolve()
+          reject(new Error('Browser speech failed.'))
         }
         window.speechSynthesis.speak(utterance)
       })
     },
-    [startAudioElementMeter, startSyntheticMeter, stopMeters, stopSpeaking],
+    [playBlob, stopSpeaking],
   )
 
   return {

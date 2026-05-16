@@ -1,17 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { User } from '@supabase/supabase-js'
 import type { AvatarThemePalette } from './lib/avatarPalette'
-
-interface StoredUser {
-  email: string
-  name: string
-  passwordHash: string
-  voiceId: string | null
-  bio: string
-  avatarUrl: string | null
-  themeFromAvatar: boolean
-  avatarTheme: AvatarThemePalette | null
-  createdAt: number
-}
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 
 export interface PublicUser {
   email: string
@@ -42,51 +32,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const USERS_KEY = 'innervoice-users'
 const SESSION_KEY = 'innervoice-session'
-
-function hashPassword(password: string): string {
-  let hash = 0
-  for (let i = 0; i < password.length; i += 1) {
-    hash = (hash << 5) - hash + password.charCodeAt(i)
-    hash |= 0
-  }
-  return `iv-${hash}`
-}
-
-function readUsers(): Record<string, StoredUser> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(USERS_KEY) || '{}') as Record<string, StoredUser>
-    for (const email of Object.keys(raw)) {
-      const u = raw[email]
-      if (u.bio === undefined) u.bio = ''
-      if (u.createdAt === undefined) u.createdAt = Date.now()
-      if (u.avatarUrl === undefined) u.avatarUrl = null
-      if (u.themeFromAvatar === undefined) u.themeFromAvatar = false
-      if (u.avatarTheme === undefined) u.avatarTheme = null
-    }
-    return raw
-  } catch {
-    return {}
-  }
-}
-
-function writeUsers(users: Record<string, StoredUser>) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
-}
-
-function toPublicUser(stored: StoredUser): PublicUser {
-  return {
-    email: stored.email,
-    name: stored.name,
-    voiceId: stored.voiceId,
-    bio: stored.bio ?? '',
-    avatarUrl: stored.avatarUrl ?? null,
-    themeFromAvatar: stored.themeFromAvatar ?? false,
-    avatarTheme: stored.avatarTheme ?? null,
-    createdAt: stored.createdAt,
-  }
-}
 
 function readSession(): PublicUser | null {
   try {
@@ -114,8 +60,115 @@ function writeSession(user: PublicUser | null) {
   }
 }
 
+interface ProfileRow {
+  email: string | null
+  name: string | null
+  bio: string | null
+  avatar_url: string | null
+  theme_from_avatar: boolean | null
+  avatar_theme: AvatarThemePalette | null
+  voice_id: string | null
+  created_at: string | null
+}
+
+function mapProfileToPublic(profile: ProfileRow, fallbackEmail = ''): PublicUser {
+  return {
+    email: profile.email ?? fallbackEmail,
+    name: profile.name ?? 'InnerVoice User',
+    bio: profile.bio ?? '',
+    avatarUrl: profile.avatar_url ?? null,
+    themeFromAvatar: profile.theme_from_avatar ?? false,
+    avatarTheme: profile.avatar_theme ?? null,
+    voiceId: profile.voice_id ?? null,
+    createdAt: profile.created_at ? Date.parse(profile.created_at) : Date.now(),
+  }
+}
+
+async function getOrCreateProfile(
+  userId: string,
+  email: string,
+  defaults?: { name?: string; bio?: string; voiceId?: string | null },
+) {
+  if (!supabase) throw new Error('Supabase is not configured.')
+  const { data: existing, error: fetchError } = await supabase
+    .from('profiles')
+    .select('email,name,bio,avatar_url,theme_from_avatar,avatar_theme,voice_id,created_at')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (fetchError) throw fetchError
+
+  if (!existing) {
+    const payload = {
+      id: userId,
+      email,
+      name: defaults?.name?.trim() || 'InnerVoice User',
+      bio: defaults?.bio?.trim() || '',
+      avatar_url: null as string | null,
+      theme_from_avatar: false,
+      avatar_theme: null as AvatarThemePalette | null,
+      voice_id: defaults?.voiceId ?? null,
+      created_at: new Date().toISOString(),
+    }
+    const { error: insertError } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
+    if (insertError) throw insertError
+    return mapProfileToPublic(payload, email)
+  }
+
+  const existingProfile = existing as ProfileRow
+  if (!existingProfile.voice_id && defaults?.voiceId) {
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ voice_id: defaults.voiceId })
+      .eq('id', userId)
+    if (!updateError) {
+      return mapProfileToPublic({ ...existingProfile, voice_id: defaults.voiceId }, email)
+    }
+  }
+
+  return mapProfileToPublic(existingProfile, email)
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(() => readSession())
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return
+
+    let cancelled = false
+
+    const syncUser = async (authUser: User | null) => {
+      if (!authUser) {
+        writeSession(null)
+        if (!cancelled) setUser(null)
+        return
+      }
+
+      try {
+        const sessionSnapshot = readSession()
+        const profile = await getOrCreateProfile(authUser.id, authUser.email ?? '', {
+          name: sessionSnapshot?.name,
+          bio: sessionSnapshot?.bio,
+          voiceId: sessionSnapshot?.voiceId ?? null,
+        })
+        writeSession(profile)
+        if (!cancelled) setUser(profile)
+      } catch (error) {
+        const fallback = readSession()
+        if (!cancelled) setUser(fallback)
+      }
+    }
+
+    void supabase.auth.getUser().then(({ data }) => syncUser(data.user ?? null))
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      void syncUser(session?.user ?? null)
+    })
+
+    return () => {
+      cancelled = true
+      subscription.subscription.unsubscribe()
+    }
+  }, [])
 
   const register = useCallback(
     async ({ name, email, password, bio }: { name: string; email: string; password: string; bio?: string }) => {
@@ -126,43 +179,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (password.length < 6) {
         throw new Error('Password must be at least 6 characters.')
       }
-      const users = readUsers()
-      if (users[normalizedEmail]) {
-        throw new Error('An account with that email already exists. Try logging in.')
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env')
       }
-      const stored: StoredUser = {
+
+      const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            name: name.trim(),
+            bio: bio?.trim() ?? '',
+          },
+        },
+      })
+
+      if (error) throw error
+      const authUser = data.user
+      if (!authUser) throw new Error('Registration failed. Please try again.')
+
+      const profile = await getOrCreateProfile(authUser.id, normalizedEmail, {
         name: name.trim(),
-        passwordHash: hashPassword(password),
-        voiceId: null,
         bio: bio?.trim() ?? '',
-        avatarUrl: null,
-        themeFromAvatar: false,
-        avatarTheme: null,
-        createdAt: Date.now(),
-      }
-      users[normalizedEmail] = stored
-      writeUsers(users)
-      const publicUser = toPublicUser(stored)
-      writeSession(publicUser)
-      setUser(publicUser)
+      })
+
+      writeSession(profile)
+      setUser(profile)
     },
     [],
   )
 
   const login = useCallback(async ({ email, password }: { email: string; password: string }) => {
     const normalizedEmail = email.trim().toLowerCase()
-    const users = readUsers()
-    const stored = users[normalizedEmail]
-    if (!stored || stored.passwordHash !== hashPassword(password)) {
-      throw new Error('Invalid email or password.')
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env')
     }
-    const publicUser = toPublicUser(stored)
-    writeSession(publicUser)
-    setUser(publicUser)
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    })
+
+    if (error) throw error
+    const authUser = data.user
+    if (!authUser) throw new Error('Invalid email or password.')
+
+    const profile = await getOrCreateProfile(authUser.id, normalizedEmail)
+    writeSession(profile)
+    setUser(profile)
   }, [])
 
   const logout = useCallback(() => {
+    if (supabase) {
+      void supabase.auth.signOut()
+    }
     writeSession(null)
     setUser(null)
   }, [])
@@ -170,12 +240,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setUserVoiceId = useCallback((voiceId: string | null) => {
     setUser((current) => {
       if (!current) return current
-      const users = readUsers()
-      const stored = users[current.email]
-      if (stored) {
-        stored.voiceId = voiceId
-        users[current.email] = stored
-        writeUsers(users)
+      const client = supabase
+      if (client) {
+        void client.auth.getUser().then(({ data }) => {
+          if (!data.user) return
+          void client.from('profiles').update({ voice_id: voiceId }).eq('id', data.user.id)
+        })
       }
       const next: PublicUser = { ...current, voiceId }
       writeSession(next)
@@ -201,40 +271,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!trimmedName) {
         throw new Error('Name cannot be empty.')
       }
-      const current = readSession()
+      const current = readSession() ?? user
       if (!current) return
-      const users = readUsers()
-      const stored = users[current.email]
-      if (!stored) return
-      stored.name = trimmedName
-      if (bio !== undefined) stored.bio = bio.trim()
-      if (avatarUrl !== undefined) {
-        stored.avatarUrl = avatarUrl
-        if (!avatarUrl) {
-          stored.themeFromAvatar = false
-          stored.avatarTheme = null
-        }
-      }
-      if (themeFromAvatar !== undefined) stored.themeFromAvatar = themeFromAvatar
-      if (avatarTheme !== undefined) stored.avatarTheme = avatarTheme
-      if (!stored.avatarUrl) {
-        stored.themeFromAvatar = false
-        stored.avatarTheme = null
-      }
-      users[current.email] = stored
-      writeUsers(users)
+
+      if (!supabase) throw new Error('Supabase is not configured.')
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData.user) return
+
+      const nextAvatarUrl = avatarUrl !== undefined ? avatarUrl : current.avatarUrl
+      const nextThemeFromAvatar =
+        nextAvatarUrl && themeFromAvatar !== undefined ? themeFromAvatar : nextAvatarUrl ? current.themeFromAvatar : false
+      const nextAvatarTheme = nextAvatarUrl ? (avatarTheme !== undefined ? avatarTheme : current.avatarTheme) : null
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          name: trimmedName,
+          bio: bio !== undefined ? bio.trim() : current.bio,
+          avatar_url: nextAvatarUrl,
+          theme_from_avatar: nextThemeFromAvatar,
+          avatar_theme: nextAvatarTheme,
+        })
+        .eq('id', authData.user.id)
+
+      if (error) throw error
+
       const next: PublicUser = {
         ...current,
         name: trimmedName,
-        bio: stored.bio,
-        avatarUrl: stored.avatarUrl ?? null,
-        themeFromAvatar: stored.themeFromAvatar ?? false,
-        avatarTheme: stored.avatarTheme ?? null,
+        bio: bio !== undefined ? bio.trim() : current.bio,
+        avatarUrl: nextAvatarUrl ?? null,
+        themeFromAvatar: nextThemeFromAvatar ?? false,
+        avatarTheme: nextAvatarTheme ?? null,
       }
       writeSession(next)
       setUser(next)
     },
-    [],
+    [user],
   )
 
   const value = useMemo<AuthContextValue>(

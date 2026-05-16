@@ -1,10 +1,8 @@
 import type { Emotion } from '../types'
 import { normalizeV3AudioTags } from '../lib/elevenV3Tags'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { base64ToBlob, blobToBase64, invokeGateway } from './backendGateway'
 
-const ELEVENLABS_KEY =
-  (import.meta.env.VITE_ELEVENLABS_API_KEY as string | undefined) ||
-  (import.meta.env.ELEVENLABS_API_KEY as string | undefined)
-const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1'
 const OUTPUT_FORMAT_DEFAULT = 'mp3_44100_128'
 const OUTPUT_FORMAT_REALTIME = 'mp3_22050_32'
 
@@ -17,15 +15,8 @@ export function getLastTtsBackend(): TtsBackend | null {
 }
 
 function requireKey() {
-  if (!ELEVENLABS_KEY) {
-    throw new Error('ElevenLabs API key missing. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY to .env.')
-  }
-}
-
-function apiHeaders(): HeadersInit {
-  return {
-    'Content-Type': 'application/json',
-    'xi-api-key': ELEVENLABS_KEY!,
+  if (!isSupabaseConfigured) {
+    throw new Error('Supabase backend is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.')
   }
 }
 
@@ -70,27 +61,15 @@ function getV3Stability(emotion: Emotion): number {
 
 export async function cloneVoice(audioBlob: Blob, name = `InnerVoice-${Date.now()}`): Promise<string> {
   requireKey()
-  const formData = new FormData()
-  formData.append('name', name)
-  formData.append('files', audioBlob, 'voice-sample.webm')
-
-  const response = await fetch(`${ELEVENLABS_BASE_URL}/voices/add`, {
-    method: 'POST',
-    headers: {
-      'xi-api-key': ELEVENLABS_KEY!,
-    },
-    body: formData,
+  const data = await invokeGateway<{ voiceId: string }>('cloneVoice', {
+    name,
+    audioBase64: await blobToBase64(audioBlob),
+    mimeType: audioBlob.type || 'audio/webm',
   })
-
-  if (!response.ok) {
-    throw new Error('Unable to clone voice. Please verify your ElevenLabs API key and try again.')
-  }
-
-  const data = (await response.json()) as { voice_id?: string }
-  if (!data.voice_id) {
+  if (!data.voiceId) {
     throw new Error('ElevenLabs response did not include a voice ID.')
   }
-  return data.voice_id
+  return data.voiceId
 }
 
 /**
@@ -101,82 +80,6 @@ export function stripAudioTags(text: string): string {
     .replace(/\[[^\]]+\]/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
-}
-
-async function readErrorSnippet(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: unknown }
-    if (typeof body.detail === 'string') return body.detail
-    return JSON.stringify(body.detail ?? body).slice(0, 200)
-  } catch {
-    return response.statusText
-  }
-}
-
-/** Primary path: text-to-dialogue with eleven_v3 (best for audio tags). */
-async function synthesizeDialogue(
-  text: string,
-  voiceId: string,
-  stability: number,
-  outputFormat: string,
-): Promise<Response> {
-  return fetch(`${ELEVENLABS_BASE_URL}/text-to-dialogue?output_format=${outputFormat}`, {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({
-      inputs: [{ text, voice_id: voiceId }],
-      model_id: 'eleven_v3',
-      settings: { stability },
-      apply_text_normalization: 'off',
-    }),
-  })
-}
-
-/** Fallback: classic TTS with eleven_v3. */
-async function synthesizeSpeechV3(
-  text: string,
-  voiceId: string,
-  stability: number,
-  outputFormat: string,
-  optimizeForRealtime: boolean,
-): Promise<Response> {
-  const latencyParam = optimizeForRealtime ? '&optimize_streaming_latency=3' : ''
-  return fetch(
-    `${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${outputFormat}${latencyParam}`,
-    {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({
-      text,
-      model_id: 'eleven_v3',
-      apply_text_normalization: 'off',
-      voice_settings: {
-        stability,
-        similarity_boost: 0.75,
-        style: 0.35,
-        use_speaker_boost: true,
-        speed: 1,
-      },
-    }),
-    },
-  )
-}
-
-async function synthesizeSpeechV2(text: string, voiceId: string, outputFormat: string): Promise<Response> {
-  return fetch(`${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${outputFormat}`, {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: JSON.stringify({
-      text: stripAudioTags(text),
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: {
-        stability: 0.45,
-        similarity_boost: 0.8,
-        style: 0.5,
-        use_speaker_boost: true,
-      },
-    }),
-  })
 }
 
 interface TextToSpeechOptions {
@@ -199,37 +102,20 @@ export async function textToSpeech(
   const stability = getV3Stability(emotion)
   const outputFormat = options.realtime ? OUTPUT_FORMAT_REALTIME : OUTPUT_FORMAT_DEFAULT
 
-  const dialogue = await synthesizeDialogue(taggedText, voiceId, stability, outputFormat)
-  if (dialogue.ok) {
-    lastTtsBackend = 'dialogue_v3'
-    return dialogue.blob()
-  }
+  const data = await invokeGateway<{
+    audioBase64: string
+    mimeType: string
+    backend: TtsBackend
+  }>('textToSpeech', {
+    text: taggedText,
+    plainText: stripAudioTags(taggedText),
+    voiceId,
+    stability,
+    outputFormat,
+    realtime: Boolean(options.realtime),
+    emotion,
+  })
 
-  if (import.meta.env.DEV) {
-    console.warn('[InnerVoice] text-to-dialogue failed:', dialogue.status, await readErrorSnippet(dialogue))
-  }
-
-  const speechV3 = await synthesizeSpeechV3(taggedText, voiceId, stability, outputFormat, Boolean(options.realtime))
-  if (speechV3.ok) {
-    lastTtsBackend = 'speech_v3'
-    return speechV3.blob()
-  }
-
-  if (import.meta.env.DEV) {
-    console.warn('[InnerVoice] eleven_v3 TTS failed:', speechV3.status, await readErrorSnippet(speechV3))
-  }
-
-  const speechV2 = await synthesizeSpeechV2(taggedText, voiceId, outputFormat)
-  if (!speechV2.ok) {
-    const detail = await readErrorSnippet(speechV2)
-    throw new Error(
-      `Unable to synthesize speech. v3 may be unavailable on your plan. (${speechV2.status}: ${detail})`,
-    )
-  }
-
-  lastTtsBackend = 'speech_v2_fallback'
-  if (import.meta.env.DEV) {
-    console.warn('[InnerVoice] Using eleven_multilingual_v2 — audio tags are stripped in this fallback.')
-  }
-  return speechV2.blob()
+  lastTtsBackend = data.backend
+  return base64ToBlob(data.audioBase64, data.mimeType || 'audio/mpeg')
 }

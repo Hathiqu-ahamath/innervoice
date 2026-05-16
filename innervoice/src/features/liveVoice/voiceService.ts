@@ -1,4 +1,5 @@
-import { detectEmotion, getLiveFutureSelfResponse } from '../../api/openai'
+import { detectEmotion } from '../../api/openai'
+import { getStableLiveReply } from './liveBrain'
 import { stripAudioTags } from '../../api/elevenlabs'
 import type { Emotion, Message } from '../../types'
 
@@ -18,7 +19,7 @@ export function createUserMessage(text: string): Message {
 }
 
 export async function createAssistantMessage(history: Message[]): Promise<{ raw: Message; display: Message }> {
-  const rawText = await getLiveFutureSelfResponse(history)
+  const rawText = await getStableLiveReply(history)
   const raw = createMessage('assistant', rawText)
   const display = createMessage('assistant', stripAudioTags(rawText))
   return { raw, display }

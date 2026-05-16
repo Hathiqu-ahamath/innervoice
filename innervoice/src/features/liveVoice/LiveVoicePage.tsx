@@ -5,6 +5,7 @@ import type { Emotion } from '../../types'
 import { useAuth } from '../../AuthContext'
 import { BreathingVoiceOrb, type OrbEmotion, type OrbState } from '../../components/BreathingVoiceOrb'
 import { useLiveConversation } from './useLiveConversation'
+import { fetchLiveSpeechBlob } from './liveTts'
 import { useVoiceInput } from './useVoiceInput'
 import { useVoiceOutput } from './useVoiceOutput'
 
@@ -13,24 +14,31 @@ interface Props {
 }
 
 const SILENCE_AUTO_CLOSE_MS = 20000
-const FILLER_DELAY_MS = 700
+/** Show a thinking hint in UI only (no TTS) if the model is still working. */
+const LATENCY_HINT_MS = 900
+const DUPLICATE_UTTERANCE_MS = 900
 const SILENT_CAPTURE_LIMIT = 3
 const STICKY_STATUS_MS = 3500
 
-const GREETING_TEXT = '[warm] Hey.'
+const GREETING_TEXT = 'Hey.'
 const GREETING_DISPLAY = 'Hey.'
 
+// Tiny, natural fillers to mask latency. Short on purpose.
 const THINKING_FILLERS = [
-  { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
-  { display: 'Okay, I hear you.', spoken: '[softly] Okay, [short pause] I hear you.' },
-  { display: 'Yeah, give me a moment.', spoken: '[gentle exhale] Yeah, [short pause] give me a moment.' },
-  { display: 'Hmm, thinking...', spoken: '[thoughtful] Hmm, [short pause] thinking.' },
-  { display: 'Right, with you.', spoken: '[warm] Right, [short pause] with you.' },
-  { display: 'Mhm, just a sec.', spoken: '[softly] Mhm, [short pause] just a sec.' },
+  { display: 'Yhhh…',   spoken: '[thoughtful] Yhhh...' },
+  { display: 'Ummm…',   spoken: '[thoughtful] Ummm...' },
+  { display: 'Wellll…', spoken: '[softly] Wellll...' },
+  { display: 'Hmmm…',   spoken: '[thoughtful] Hmmm...' },
+  { display: 'Mhm…',    spoken: '[softly] Mhm...' },
+  { display: 'Mmm…',    spoken: '[softly] Mmm...' },
+  { display: 'Uh-huh…', spoken: '[warm] Uh-huh...' },
+  { display: 'Right…',  spoken: '[warm] Right...' },
+  { display: 'Okay…',   spoken: '[softly] Okay...' },
+  { display: 'Yeah…',   spoken: '[warm] Yeah...' },
 ]
 
-function pickFiller() {
-  return THINKING_FILLERS[Math.floor(Math.random() * THINKING_FILLERS.length)]
+function pickFrom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]
 }
 
 const BACKCHANNELS = new Set([
@@ -93,7 +101,17 @@ export function LiveVoicePage({ onLeave }: Props) {
   const isProcessingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const wasInterruptedRef = useRef(false)
-  const pendingFollowupRef = useRef<string>('')
+  const activeTurnRef = useRef(0)
+  const fillerTimerRef = useRef<number | null>(null)
+  /** When false, mic audio is ignored until the user taps the orb. */
+  const acceptingInputRef = useRef(true)
+
+  const clearFillerTimer = useCallback(() => {
+    if (fillerTimerRef.current !== null) {
+      window.clearTimeout(fillerTimerRef.current)
+      fillerTimerRef.current = null
+    }
+  }, [])
 
   const { state, processUserTurn, resetConversation } = useLiveConversation()
   const { isSpeaking, outputLevel, speak, stopSpeaking } = useVoiceOutput()
@@ -109,8 +127,15 @@ export function LiveVoicePage({ onLeave }: Props) {
 
   const handleTranscriptRef = useRef<(text: string) => void>(() => {})
 
-  const { isSupported, isListening, transcript, inputLevel, startListening, stopListening } =
-    useVoiceInput({
+  const {
+    isSupported,
+    isListening,
+    inputLevel,
+    startListening,
+    stopListening,
+    pauseCapture,
+    resumeCapture,
+  } = useVoiceInput({
       onSpeechStart: () => {
         lastActivityAtRef.current = Date.now()
         setStatusDetail("I'm listening...")
@@ -120,6 +145,7 @@ export function LiveVoicePage({ onLeave }: Props) {
       },
       onError: (message) => setStickyStatus(message),
       onFinalTranscript: (finalText) => {
+        if (!acceptingInputRef.current) return
         silentCaptureCountRef.current = 0
         handleTranscriptRef.current(finalText)
       },
@@ -135,126 +161,132 @@ export function LiveVoicePage({ onLeave }: Props) {
   // Speak a reply, pausing the mic around it so the AI voice isn't
   // accidentally transcribed as user input.
   const speakReply = useCallback(
-    async (replyText: string, replyEmotion: Emotion, sessionId: number) => {
-      // Stop recording first — prevents echo pickup.
-      stopListening()
+    async (
+      replyText: string,
+      replyEmotion: Emotion,
+      turnId: number,
+      prefetchedBlob: Blob | null,
+    ) => {
+      if (!voiceId) {
+        setStickyStatus('No cloned voice — complete Voice Train to hear replies in your voice.')
+        acceptingInputRef.current = true
+        resumeCapture()
+        return
+      }
+      pauseCapture()
       setStatusDetail('Speaking...')
-      await speak({ text: replyText, emotion: replyEmotion, voiceId, realtime: false })
-
-      // Restart mic after speaking, only if the session is still active.
-      if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      if (Date.now() < stickyStatusUntilRef.current) return
-      await startListening()
-      if (sessionActiveRef.current && sessionIdRef.current === sessionId) {
+      const audioPromise =
+        prefetchedBlob && prefetchedBlob.size >= 200
+          ? Promise.resolve(prefetchedBlob)
+          : fetchLiveSpeechBlob(replyText, voiceId, replyEmotion)
+      try {
+        const blob = await audioPromise
+        if (activeTurnRef.current !== turnId) return
+        await speak({ text: replyText, emotion: replyEmotion, voiceId, prefetchedBlob: blob })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Voice output failed.'
+        setStickyStatus(msg)
+      } finally {
+        if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
+        acceptingInputRef.current = true
+        resumeCapture()
         setStatusDetail("I'm listening...")
         lastActivityAtRef.current = Date.now()
       }
     },
-    [speak, startListening, stopListening, voiceId],
+    [pauseCapture, resumeCapture, setStickyStatus, speak, voiceId],
   )
 
-  // Interrupt: tap the orb while the AI is speaking.
-  const interruptAndListen = useCallback(() => {
-    if (!isSpeakingRef.current) return
+  const handleOrbInterrupt = useCallback(() => {
+    if (!sessionActiveRef.current) return
+    if (!isSpeakingRef.current && !isProcessingRef.current) return
+
     wasInterruptedRef.current = true
+    activeTurnRef.current += 1
+    clearFillerTimer()
     stopSpeaking()
+    isProcessingRef.current = false
+    acceptingInputRef.current = true
     setStatusDetail("I'm listening...")
-    void startListening()
-  }, [startListening, stopSpeaking])
+    resumeCapture()
+    lastActivityAtRef.current = Date.now()
+  }, [clearFillerTimer, resumeCapture, stopSpeaking])
 
   const handleTranscript = useCallback(
     async (finalText: string) => {
       if (!sessionActiveRef.current) return
-      const sessionId = sessionIdRef.current
-      const normalized = finalText.trim().toLowerCase()
-      if (!normalized) return
 
+      const trimmed = finalText.trim()
+      if (!trimmed) return
+
+      const normalized = trimmed.toLowerCase()
       const now = Date.now()
       if (
         normalized === lastHandledTranscriptRef.current.text &&
-        now - lastHandledTranscriptRef.current.at < 3200
+        now - lastHandledTranscriptRef.current.at < DUPLICATE_UTTERANCE_MS
       ) {
+        resumeCapture()
         return
       }
       lastHandledTranscriptRef.current = { text: normalized, at: now }
       lastActivityAtRef.current = now
 
-      if (wasInterruptedRef.current && isBackchannel(finalText)) {
+      if (wasInterruptedRef.current && isBackchannel(trimmed)) {
         wasInterruptedRef.current = false
         setStatusDetail("I'm listening...")
+        resumeCapture()
         return
       }
 
-      if (isProcessingRef.current) {
-        pendingFollowupRef.current = pendingFollowupRef.current
-          ? `${pendingFollowupRef.current} ${finalText}`.trim()
-          : finalText
+      if (!acceptingInputRef.current || isProcessingRef.current || isSpeakingRef.current) {
         return
       }
 
+      const turnId = ++activeTurnRef.current
+      clearFillerTimer()
+      wasInterruptedRef.current = false
+      acceptingInputRef.current = false
+      pauseCapture()
+
+      setLastUserCaption(trimmed)
+      setStatusDetail('Got it…')
       isProcessingRef.current = true
+
+      const turnPromise = processUserTurn(trimmed)
+      const latencyHint = pickFrom(THINKING_FILLERS)
+      let turnArrived = false
+
+      fillerTimerRef.current = window.setTimeout(() => {
+        if (!sessionActiveRef.current || activeTurnRef.current !== turnId || turnArrived) return
+        setStatusDetail(latencyHint.display)
+      }, LATENCY_HINT_MS)
+
       try {
-        let combined = finalText
-        if (pendingFollowupRef.current) {
-          combined = `${pendingFollowupRef.current} ${finalText}`.trim()
-          pendingFollowupRef.current = ''
-        }
-        wasInterruptedRef.current = false
-        setStatusDetail('Thinking...')
-        setLastUserCaption(combined)
-
-        const turnPromise = processUserTurn(combined)
-
-        const filler = pickFiller()
-        let fillerSpeaking = false
-        const fillerTimer = window.setTimeout(async () => {
-          if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-          if (wasInterruptedRef.current) return
-          setStatusDetail(filler.display)
-          setLatestReply(filler.display)
-          fillerSpeaking = true
-          stopListening()
-          await speak({ text: filler.spoken, emotion: 'neutral', voiceId, realtime: true }).catch(() => {})
-          fillerSpeaking = false
-        }, FILLER_DELAY_MS)
-
         const turn = await turnPromise
-        window.clearTimeout(fillerTimer)
-        if (fillerSpeaking) {
-          stopSpeaking()
-          fillerSpeaking = false
-        }
+        turnArrived = true
+        clearFillerTimer()
 
-        if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
+        if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
         if (!turn) {
-          await startListening()
+          acceptingInputRef.current = true
+          resumeCapture()
           setStatusDetail("I'm listening...")
-          return
-        }
-
-        if (wasInterruptedRef.current || pendingFollowupRef.current) {
-          setLatestReply(turn.displayText)
-          await startListening()
           return
         }
 
         setLatestReply(turn.displayText)
-        await speakReply(turn.spokenText, turn.emotion, sessionId)
-
-        if (sessionActiveRef.current && sessionIdRef.current === sessionId) {
-          setStatusDetail("I'm listening...")
-          lastActivityAtRef.current = Date.now()
-        }
+        const ttsPrefetch =
+          voiceId
+            ? fetchLiveSpeechBlob(turn.spokenText, voiceId, turn.emotion).catch(() => null)
+            : Promise.resolve(null)
+        await speakReply(turn.spokenText, turn.emotion, turnId, await ttsPrefetch)
       } finally {
-        isProcessingRef.current = false
-        if (sessionActiveRef.current && pendingFollowupRef.current) {
-          const next = pendingFollowupRef.current
-          pendingFollowupRef.current = ''
-          window.setTimeout(() => handleTranscriptRef.current(next), 60)
+        if (activeTurnRef.current === turnId) {
+          isProcessingRef.current = false
         }
       }
     },
-    [processUserTurn, speak, speakReply, startListening, stopListening, stopSpeaking, voiceId],
+    [clearFillerTimer, pauseCapture, processUserTurn, resumeCapture, speakReply],
   )
 
   useEffect(() => {
@@ -270,12 +302,12 @@ export function LiveVoicePage({ onLeave }: Props) {
       if (!isSessionActive || state.isProcessing || isSpeaking) return
       const silent = Date.now() - lastActivityAtRef.current
 
-      // After 2s with no activity, ask once
-      if (silent >= 2000 && !askedHelpRef.current && isListening) {
+      // After 5s with no activity, ask once (live should not nag early)
+      if (silent >= 5000 && !askedHelpRef.current && isListening) {
         askedHelpRef.current = true
         const sessionId = sessionIdRef.current
         stopListening()
-        void speak({ text: '[softly] May I help you?', emotion: 'neutral', voiceId, realtime: false })
+        void speak({ text: 'May I help you?', emotion: 'neutral', voiceId })
           .then(() => {
             if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
             lastActivityAtRef.current = Date.now()
@@ -307,26 +339,20 @@ export function LiveVoicePage({ onLeave }: Props) {
     setIsSessionActive(true)
     sessionIdRef.current += 1
     const sessionId = sessionIdRef.current
+    acceptingInputRef.current = true
     lastActivityAtRef.current = Date.now()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
     silentCaptureCountRef.current = 0
     setLatestReply(GREETING_DISPLAY)
-    setStatusDetail('Speaking...')
+    setStatusDetail("I'm listening...")
 
     void (async () => {
-      try {
-        await speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, realtime: false })
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn('[live-voice] greeting failed', err)
-        setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
-      }
-      if (cancelled || !sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail('Opening microphone...')
       await startListening()
       if (cancelled || !sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      if (Date.now() < stickyStatusUntilRef.current) return
-      setStatusDetail("I'm listening...")
+      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId }).catch((err) => {
+        console.warn('[live-voice] greeting failed', err)
+        setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
+      })
     })()
 
     return () => {
@@ -355,21 +381,17 @@ export function LiveVoicePage({ onLeave }: Props) {
     sessionIdRef.current += 1
     sessionActiveRef.current = true
     setIsSessionActive(true)
+    acceptingInputRef.current = true
     lastActivityAtRef.current = Date.now()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
     silentCaptureCountRef.current = 0
     setLatestReply(GREETING_DISPLAY)
     const sessionId = sessionIdRef.current
     void (async () => {
-      setStatusDetail('Speaking...')
-      try {
-        await speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, realtime: false })
-      } catch { /* already warned on mount */ }
-      if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail('Opening microphone...')
+      setStatusDetail("I'm listening...")
       await startListening()
       if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail("I'm listening...")
+      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId }).catch(() => {})
     })()
   }, [speak, startListening, voiceId])
 
@@ -384,6 +406,8 @@ export function LiveVoicePage({ onLeave }: Props) {
   }, [isListening, isSessionActive, isSpeaking, state.isProcessing])
 
   const combinedLevel = useMemo(() => Math.max(inputLevel * 0.9, outputLevel), [inputLevel, outputLevel])
+
+  const canInterrupt = isSessionActive && (isSpeaking || state.isProcessing)
 
   const orbState: OrbState = useMemo(() => {
     if (isSpeaking) return 'speaking'
@@ -448,21 +472,27 @@ export function LiveVoicePage({ onLeave }: Props) {
         <div className="flex items-center justify-center">
           <motion.button
             type="button"
-            aria-label={isSpeaking ? 'Tap to interrupt' : orbState}
-            onClick={isSpeaking ? interruptAndListen : undefined}
-            className={isSpeaking ? 'cursor-pointer rounded-full outline-none' : 'cursor-default rounded-full'}
-            whileTap={isSpeaking ? { scale: 0.94 } : {}}
+            aria-label={canInterrupt ? 'Tap to interrupt' : orbState}
+            onClick={canInterrupt ? handleOrbInterrupt : undefined}
+            className={`relative rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+              canInterrupt ? 'cursor-pointer' : 'cursor-default'
+            }`}
+            whileTap={canInterrupt ? { scale: 0.94 } : {}}
           >
+            {canInterrupt && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 rounded-full border-2 border-accent/50 shadow-[0_0_20px] shadow-accent/30"
+              />
+            )}
             <BreathingVoiceOrb state={orbState} emotion={orbEmotion} level={combinedLevel} size={orbSize} />
           </motion.button>
         </div>
 
-        {/* Interrupt hint */}
-        {isSpeaking && (
+        {canInterrupt && (
           <motion.p
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
             className="mt-2 text-center text-xs text-accent"
           >
             <Hand size={11} className="mr-1 inline" />
@@ -485,15 +515,17 @@ export function LiveVoicePage({ onLeave }: Props) {
         <p className="inline-flex items-center gap-1.5 text-xs font-medium text-text-tertiary">
           <Sparkles size={12} className="text-accent" /> Captions
         </p>
-        {transcript || lastUserCaption || latestReply ? (
-          <div className="mt-2 max-h-[35dvh] space-y-2 overflow-y-auto pr-1">
-            {(transcript || lastUserCaption) && (
+        {lastUserCaption || latestReply ? (
+          <motion.div className="mt-2 max-h-[35dvh] space-y-2 overflow-y-auto pr-1">
+            {lastUserCaption && (
               <p
                 className={`ml-auto max-w-[92%] break-words rounded-2xl border px-3 py-2 text-sm text-text-primary transition sm:max-w-[88%] ${
-                  isListening ? 'border-accent/60 bg-accent-soft' : 'border-border bg-elevated'
+                  isListening && !isSpeaking && !state.isProcessing
+                    ? 'border-accent/60 bg-accent-soft'
+                    : 'border-border bg-elevated'
                 }`}
               >
-                {transcript || lastUserCaption}
+                You: {lastUserCaption}
               </p>
             )}
             {latestReply && (
