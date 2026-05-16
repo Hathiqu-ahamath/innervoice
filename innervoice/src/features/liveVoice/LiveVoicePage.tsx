@@ -8,33 +8,14 @@ import { useLiveConversation } from './useLiveConversation'
 import { useVoiceInput } from './useVoiceInput'
 import { useVoiceOutput } from './useVoiceOutput'
 
-const DEBUG_ENDPOINT = 'http://127.0.0.1:7557/ingest/69d83c9c-05f0-432b-b66d-2c89382c215d'
-const DEBUG_SESSION_ID = '0d719b'
-const DEBUG_RUN_ID = 'livechat-initial'
-
-function debugLog(location: string, message: string, hypothesisId: string, data: Record<string, unknown>) {
-  fetch(DEBUG_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': DEBUG_SESSION_ID },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION_ID,
-      runId: DEBUG_RUN_ID,
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-}
-
 interface Props {
   onLeave: () => void
 }
 
 const SILENCE_AUTO_CLOSE_MS = 20000
-const FILLER_DELAY_MS = 220
-const SECOND_FILLER_DELAY_MS = 1800
+/** Only play a vocal filler if the model is still thinking after this long. */
+const LATENCY_FILLER_MS = 650
+const DUPLICATE_UTTERANCE_MS = 900
 const SILENT_CAPTURE_LIMIT = 3
 const STICKY_STATUS_MS = 3500
 
@@ -53,14 +34,6 @@ const THINKING_FILLERS = [
   { display: 'Right…',  spoken: '[warm] Right...' },
   { display: 'Okay…',   spoken: '[softly] Okay...' },
   { display: 'Yeah…',   spoken: '[warm] Yeah...' },
-]
-
-// Second-pass fillers used only if the reply is taking a while.
-const SECOND_FILLERS = [
-  { display: 'Let me think…',   spoken: '[thoughtful] Let me think...' },
-  { display: 'Just a sec…',     spoken: '[softly] Just a sec...' },
-  { display: 'Hmm, one moment…',spoken: '[thoughtful] Hmm, one moment...' },
-  { display: 'Bear with me…',   spoken: '[softly] Bear with me...' },
 ]
 
 function pickFrom<T>(arr: T[]): T {
@@ -127,7 +100,15 @@ export function LiveVoicePage({ onLeave }: Props) {
   const isProcessingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const wasInterruptedRef = useRef(false)
-  const pendingFollowupRef = useRef<string>('')
+  const activeTurnRef = useRef(0)
+  const fillerTimerRef = useRef<number | null>(null)
+
+  const clearFillerTimer = useCallback(() => {
+    if (fillerTimerRef.current !== null) {
+      window.clearTimeout(fillerTimerRef.current)
+      fillerTimerRef.current = null
+    }
+  }, [])
 
   const { state, processUserTurn, resetConversation } = useLiveConversation()
   const { isSpeaking, outputLevel, speak, stopSpeaking } = useVoiceOutput()
@@ -163,6 +144,11 @@ export function LiveVoicePage({ onLeave }: Props) {
       onError: (message) => setStickyStatus(message),
       onFinalTranscript: (finalText) => {
         silentCaptureCountRef.current = 0
+        const trimmed = finalText.trim()
+        if (trimmed) {
+          setLastUserCaption(trimmed)
+          setStatusDetail('Got it…')
+        }
         handleTranscriptRef.current(finalText)
       },
       onSilentCapture: () => {
@@ -177,37 +163,16 @@ export function LiveVoicePage({ onLeave }: Props) {
   // Speak a reply, pausing the mic around it so the AI voice isn't
   // accidentally transcribed as user input.
   const speakReply = useCallback(
-    async (replyText: string, replyEmotion: Emotion, sessionId: number) => {
+    async (replyText: string, replyEmotion: Emotion, turnId: number) => {
       pauseCapture()
       setStatusDetail('Speaking...')
-      // #region agent log
-      debugLog('src/features/liveVoice/LiveVoicePage.tsx:speak-reply-start', 'Main reply speaking started', 'H1,H2,H3', {
-        sessionId,
-        textLength: replyText.length,
-        emotion: replyEmotion,
-      })
-      // #endregion
       try {
         await speak({ text: replyText, emotion: replyEmotion, voiceId, realtime: true })
-      } catch (err) {
-        // #region agent log
-        debugLog('src/features/liveVoice/LiveVoicePage.tsx:speak-reply-error', 'Main reply TTS failed', 'H4', {
-          sessionId,
-          error: err instanceof Error ? err.message : 'unknown',
-        })
-        // #endregion
       } finally {
-        if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
+        if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
         resumeCapture()
-        // #region agent log
-        debugLog('src/features/liveVoice/LiveVoicePage.tsx:speak-reply-restarted-mic', 'Mic restarted after main reply', 'H1,H3', {
-          sessionId,
-        })
-        // #endregion
-        if (sessionActiveRef.current && sessionIdRef.current === sessionId) {
-          setStatusDetail("I'm listening...")
-          lastActivityAtRef.current = Date.now()
-        }
+        setStatusDetail("I'm listening...")
+        lastActivityAtRef.current = Date.now()
       }
     },
     [pauseCapture, resumeCapture, speak, voiceId],
@@ -225,144 +190,95 @@ export function LiveVoicePage({ onLeave }: Props) {
   const handleTranscript = useCallback(
     async (finalText: string) => {
       if (!sessionActiveRef.current) return
-      const sessionId = sessionIdRef.current
-      const normalized = finalText.trim().toLowerCase()
-      if (!normalized) return
 
+      const trimmed = finalText.trim()
+      if (!trimmed) return
+
+      const normalized = trimmed.toLowerCase()
       const now = Date.now()
       if (
         normalized === lastHandledTranscriptRef.current.text &&
-        now - lastHandledTranscriptRef.current.at < 3200
+        now - lastHandledTranscriptRef.current.at < DUPLICATE_UTTERANCE_MS
       ) {
         return
       }
       lastHandledTranscriptRef.current = { text: normalized, at: now }
       lastActivityAtRef.current = now
 
-      if (wasInterruptedRef.current && isBackchannel(finalText)) {
+      if (wasInterruptedRef.current && isBackchannel(trimmed)) {
         wasInterruptedRef.current = false
         setStatusDetail("I'm listening...")
         return
       }
 
-      if (isProcessingRef.current) {
-        pendingFollowupRef.current = pendingFollowupRef.current
-          ? `${pendingFollowupRef.current} ${finalText}`.trim()
-          : finalText
-        return
-      }
+      // Barge-in: new speech cancels in-flight reply/filler and starts fresh.
+      const turnId = ++activeTurnRef.current
+      clearFillerTimer()
+      stopSpeaking()
+      if (isSpeakingRef.current) wasInterruptedRef.current = true
 
+      setLastUserCaption(trimmed)
+      setStatusDetail('Thinking…')
       isProcessingRef.current = true
-      try {
-        let combined = finalText
-        if (pendingFollowupRef.current) {
-          combined = `${pendingFollowupRef.current} ${finalText}`.trim()
-          pendingFollowupRef.current = ''
-        }
-        wasInterruptedRef.current = false
-        setStatusDetail('Thinking...')
-        setLastUserCaption(combined)
 
-        const turnPromise = processUserTurn(combined)
+      const turnPromise = processUserTurn(trimmed)
+      const latencyFiller = pickFrom(THINKING_FILLERS)
+      let turnArrived = false
+      let fillerSpeaking = false
 
-        const firstFiller = pickFrom(THINKING_FILLERS)
-        const secondFiller = pickFrom(SECOND_FILLERS)
-        let fillerSpeaking = false
-        let turnArrived = false
-
-        const speakFiller = async (f: { display: string; spoken: string }) => {
-          if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-          if (wasInterruptedRef.current || turnArrived) return
-          // #region agent log
-          debugLog('src/features/liveVoice/LiveVoicePage.tsx:filler-start', 'Filler speaking started', 'H1,H2,H3', {
-            sessionId,
-            display: f.display,
-            turnArrived,
-            pendingFollowup: Boolean(pendingFollowupRef.current),
-          })
-          // #endregion
-          setStatusDetail(f.display)
-          setLatestReply(f.display)
+      fillerTimerRef.current = window.setTimeout(() => {
+        if (!sessionActiveRef.current || activeTurnRef.current !== turnId || turnArrived) return
+        void (async () => {
           fillerSpeaking = true
+          setStatusDetail(latencyFiller.display)
           pauseCapture()
           try {
-            await speak({ text: f.spoken, emotion: 'neutral', voiceId, realtime: true })
+            await speak({ text: latencyFiller.spoken, emotion: 'neutral', voiceId, realtime: true })
           } catch {
-            // filler is optional
+            // optional
           } finally {
             fillerSpeaking = false
             if (
               !turnArrived &&
               sessionActiveRef.current &&
-              sessionIdRef.current === sessionId &&
+              activeTurnRef.current === turnId &&
               !wasInterruptedRef.current
             ) {
               resumeCapture()
-              setStatusDetail('Thinking...')
+              setStatusDetail('Thinking…')
             }
-            // #region agent log
-            debugLog('src/features/liveVoice/LiveVoicePage.tsx:filler-end', 'Filler speaking ended', 'H1,H2,H3', {
-              sessionId,
-              display: f.display,
-              turnArrived,
-              resumedMic: !turnArrived,
-              pendingFollowup: Boolean(pendingFollowupRef.current),
-            })
-            // #endregion
           }
-        }
+        })()
+      }, LATENCY_FILLER_MS)
 
-        const fillerTimer = window.setTimeout(() => { void speakFiller(firstFiller) }, FILLER_DELAY_MS)
-        const secondFillerTimer = window.setTimeout(() => { void speakFiller(secondFiller) }, SECOND_FILLER_DELAY_MS)
-
+      try {
         const turn = await turnPromise
         turnArrived = true
-        // #region agent log
-        debugLog('src/features/liveVoice/LiveVoicePage.tsx:turn-ready', 'Assistant turn ready', 'H1,H2,H3,H4', {
-          sessionId,
-          hasTurn: Boolean(turn),
-          displayLength: turn?.displayText.length ?? 0,
-          pendingFollowup: Boolean(pendingFollowupRef.current),
-          fillerSpeaking,
-        })
-        // #endregion
-        window.clearTimeout(fillerTimer)
-        window.clearTimeout(secondFillerTimer)
-        if (fillerSpeaking) {
-          stopSpeaking()
-          fillerSpeaking = false
-        }
+        clearFillerTimer()
+        if (fillerSpeaking) stopSpeaking()
 
-        if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
+        if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
         if (!turn) {
           resumeCapture()
           setStatusDetail("I'm listening...")
           return
         }
 
-        if (wasInterruptedRef.current || pendingFollowupRef.current) {
+        if (wasInterruptedRef.current) {
           setLatestReply(turn.displayText)
           resumeCapture()
           return
         }
 
         setLatestReply(turn.displayText)
-        await speakReply(turn.spokenText, turn.emotion, sessionId)
-
-        if (sessionActiveRef.current && sessionIdRef.current === sessionId) {
-          setStatusDetail("I'm listening...")
-          lastActivityAtRef.current = Date.now()
-        }
+        await speakReply(turn.spokenText, turn.emotion, turnId)
       } finally {
-        isProcessingRef.current = false
-        if (sessionActiveRef.current && pendingFollowupRef.current) {
-          const next = pendingFollowupRef.current
-          pendingFollowupRef.current = ''
-          window.setTimeout(() => handleTranscriptRef.current(next), 60)
+        if (activeTurnRef.current === turnId) {
+          isProcessingRef.current = false
         }
       }
     },
-    [pauseCapture, processUserTurn, resumeCapture, speak, speakReply, stopSpeaking, voiceId],
+    [clearFillerTimer, pauseCapture, processUserTurn, resumeCapture, speak, speakReply, stopSpeaking, voiceId],
   )
 
   useEffect(() => {
@@ -378,8 +294,8 @@ export function LiveVoicePage({ onLeave }: Props) {
       if (!isSessionActive || state.isProcessing || isSpeaking) return
       const silent = Date.now() - lastActivityAtRef.current
 
-      // After 2s with no activity, ask once
-      if (silent >= 2000 && !askedHelpRef.current && isListening) {
+      // After 5s with no activity, ask once (live should not nag early)
+      if (silent >= 5000 && !askedHelpRef.current && isListening) {
         askedHelpRef.current = true
         const sessionId = sessionIdRef.current
         stopListening()
@@ -601,7 +517,7 @@ export function LiveVoicePage({ onLeave }: Props) {
                   isListening ? 'border-accent/60 bg-accent-soft' : 'border-border bg-elevated'
                 }`}
               >
-                {transcript || lastUserCaption}
+                You: {transcript || lastUserCaption}
               </p>
             )}
             {latestReply && (

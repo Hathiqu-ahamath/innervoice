@@ -158,7 +158,7 @@ export async function getLiveFutureSelfResponse(messages: Message[]): Promise<st
     request: {
       model: 'gpt-4o',
       temperature: 0.85,
-      max_tokens: 220,
+      max_tokens: 110,
       presence_penalty: 0.4,
       frequency_penalty: 0.3,
       messages: [

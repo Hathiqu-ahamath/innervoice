@@ -28,7 +28,7 @@ export function useLiveConversation() {
       try {
         const userMessage = createUserMessage(trimmed)
         const baseHistory = [...conversationHistory, userMessage]
-        const liveContext = baseHistory.slice(-14)
+        const liveContext = baseHistory.slice(-8)
         const assistant = await createAssistantMessage(liveContext)
         const nextHistory = [...baseHistory, assistant.raw]
         setConversationHistory(nextHistory)
