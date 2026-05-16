@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Mic, MicOff, PhoneOff, Radio, Volume2, X } from 'lucide-react'
+import { Mic, MicOff, PhoneOff, Radio, Sparkles, Volume2, X } from 'lucide-react'
 import { useAuth } from '../../AuthContext'
 import { useLiveConversation } from './useLiveConversation'
 import { useVoiceInput } from './useVoiceInput'
@@ -252,14 +252,6 @@ export function LiveVoiceController() {
     resetConversation()
   }, [resetConversation, stopLiveMode])
 
-  const status = useMemo(() => {
-    if (!isSupported) return 'Live voice unavailable in this browser'
-    if (state.isProcessing) return 'Thinking...'
-    if (isSpeaking) return 'Speaking...'
-    if (isListening) return 'Listening...'
-    return 'Ready'
-  }, [isListening, isSpeaking, isSupported, state.isProcessing])
-
   useEffect(() => {
     if (!isLiveMode) return
     if (state.isProcessing) setStatusDetail('Processing...')
@@ -281,7 +273,19 @@ export function LiveVoiceController() {
             transition={{ duration: 0.18 }}
             className="fixed inset-0 z-[70] flex bg-overlay/95"
           >
-            <div className="glass-panel relative flex min-h-full w-full flex-col border-border">
+            <div className="glass-panel relative flex min-h-full w-full flex-col overflow-hidden border-border">
+              <motion.div
+                aria-hidden="true"
+                className="pointer-events-none absolute -left-24 top-16 h-64 w-64 rounded-full bg-accent/20 blur-3xl"
+                animate={{ scale: [1, 1.15, 1], opacity: [0.22, 0.38, 0.22] }}
+                transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+              />
+              <motion.div
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-24 bottom-8 h-72 w-72 rounded-full bg-amber-300/15 blur-3xl dark:bg-amber-200/10"
+                animate={{ scale: [1.08, 0.95, 1.08], opacity: [0.2, 0.36, 0.2] }}
+                transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+              />
               <div className="flex items-center justify-between border-b border-border px-5 py-4">
                 <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
                   <Radio size={14} className="text-accent" />
@@ -298,11 +302,13 @@ export function LiveVoiceController() {
               </div>
 
               <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-5 py-6">
-                <div className="rounded-2xl border border-border bg-elevated p-4">
+                <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-4 shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
                   <LiveOrb level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <WaveStrip level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <p className="mt-3 text-center text-sm text-text-secondary">{statusDetail}</p>
-                  <p className="mt-1 text-center text-xs text-text-tertiary">{status}</p>
+                  {!isSupported && (
+                    <p className="mt-1 text-center text-xs text-danger">Live voice unavailable in this browser</p>
+                  )}
                 </div>
 
                 {!voiceId && (
@@ -312,7 +318,9 @@ export function LiveVoiceController() {
                 )}
 
                 <div className="rounded-2xl border border-border bg-surface-card p-3">
-                  <p className="text-xs font-medium text-text-tertiary">Captions</p>
+                  <p className="inline-flex items-center gap-1.5 text-xs font-medium text-text-tertiary">
+                    <Sparkles size={12} className="text-accent" /> Captions
+                  </p>
                   {(transcript || lastUserCaption || latestReply) ? (
                     <div className="mt-2 space-y-2">
                       {(transcript || lastUserCaption) && (
