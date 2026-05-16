@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Camera, Trash2, User, X } from 'lucide-react'
+import { Camera, Palette, Trash2, User, X } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import { processAvatarFile } from '../lib/avatarImage'
+import { extractPaletteFromDataUrl } from '../lib/avatarPalette'
 import { ProfileAvatar } from './ProfileAvatar'
 
 interface Props {
@@ -20,12 +21,14 @@ export function ProfilePanel({ open, onClose }: Props) {
   const [saved, setSaved] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [themeFromAvatar, setThemeFromAvatar] = useState(false)
 
   useEffect(() => {
     if (!open || !user) return
     setName(user.name)
     setBio(user.bio ?? '')
     setAvatarUrl(user.avatarUrl)
+    setThemeFromAvatar(user.themeFromAvatar ?? false)
     setError(null)
     setSaved(false)
   }, [open, user])
@@ -44,7 +47,28 @@ export function ProfilePanel({ open, onClose }: Props) {
     setSaved(false)
     setSubmitting(true)
     try {
-      await updateProfile({ name, bio, avatarUrl })
+      let nextThemeFromAvatar = themeFromAvatar
+      let avatarTheme = user.avatarTheme
+
+      if (!avatarUrl) {
+        nextThemeFromAvatar = false
+        avatarTheme = null
+      } else if (themeFromAvatar) {
+        const photoChanged = avatarUrl !== user.avatarUrl
+        if (photoChanged || !avatarTheme) {
+          avatarTheme = await extractPaletteFromDataUrl(avatarUrl)
+        }
+      } else {
+        avatarTheme = null
+      }
+
+      await updateProfile({
+        name,
+        bio,
+        avatarUrl,
+        themeFromAvatar: nextThemeFromAvatar,
+        avatarTheme,
+      })
       setSaved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save profile.')
@@ -72,6 +96,7 @@ export function ProfilePanel({ open, onClose }: Props) {
 
   const removePhoto = () => {
     setAvatarUrl(null)
+    setThemeFromAvatar(false)
     setSaved(false)
   }
 
@@ -159,6 +184,31 @@ export function ProfilePanel({ open, onClose }: Props) {
                   className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
                 />
               </label>
+              <label
+                className={`flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-elevated px-4 py-3 transition ${
+                  !avatarUrl ? 'cursor-not-allowed opacity-50' : 'hover:border-accent/40'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-accent"
+                  checked={themeFromAvatar}
+                  disabled={!avatarUrl}
+                  onChange={(e) => setThemeFromAvatar(e.target.checked)}
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                    <Palette size={14} className="text-accent" />
+                    Match UI colors to my photo
+                  </span>
+                  <span className="text-xs text-text-secondary">
+                    {avatarUrl
+                      ? 'Uses gentle tones from your profile picture instead of the default theme. Save to apply.'
+                      : 'Add a profile photo first to enable this.'}
+                  </span>
+                </span>
+              </label>
+
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-text-secondary">About you (optional)</span>
                 <textarea

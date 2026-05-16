@@ -4,11 +4,13 @@ import './index.css'
 import App from './App'
 import { ThemeProvider } from './ThemeContext'
 import { AuthProvider } from './AuthContext'
+import { AvatarThemeSync } from './components/AvatarThemeSync'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
       <AuthProvider>
+        <AvatarThemeSync />
         <App />
       </AuthProvider>
     </ThemeProvider>

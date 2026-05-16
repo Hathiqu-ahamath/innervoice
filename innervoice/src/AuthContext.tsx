@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import type { AvatarThemePalette } from './lib/avatarPalette'
 
 interface StoredUser {
   email: string
@@ -7,6 +8,8 @@ interface StoredUser {
   voiceId: string | null
   bio: string
   avatarUrl: string | null
+  themeFromAvatar: boolean
+  avatarTheme: AvatarThemePalette | null
   createdAt: number
 }
 
@@ -16,6 +19,8 @@ export interface PublicUser {
   voiceId: string | null
   bio: string
   avatarUrl: string | null
+  themeFromAvatar: boolean
+  avatarTheme: AvatarThemePalette | null
   createdAt: number
 }
 
@@ -26,7 +31,13 @@ interface AuthContextValue {
   login: (input: { email: string; password: string }) => Promise<void>
   logout: () => void
   setUserVoiceId: (voiceId: string | null) => void
-  updateProfile: (input: { name: string; bio?: string; avatarUrl?: string | null }) => Promise<void>
+  updateProfile: (input: {
+    name: string
+    bio?: string
+    avatarUrl?: string | null
+    themeFromAvatar?: boolean
+    avatarTheme?: AvatarThemePalette | null
+  }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -51,6 +62,8 @@ function readUsers(): Record<string, StoredUser> {
       if (u.bio === undefined) u.bio = ''
       if (u.createdAt === undefined) u.createdAt = Date.now()
       if (u.avatarUrl === undefined) u.avatarUrl = null
+      if (u.themeFromAvatar === undefined) u.themeFromAvatar = false
+      if (u.avatarTheme === undefined) u.avatarTheme = null
     }
     return raw
   } catch {
@@ -69,6 +82,8 @@ function toPublicUser(stored: StoredUser): PublicUser {
     voiceId: stored.voiceId,
     bio: stored.bio ?? '',
     avatarUrl: stored.avatarUrl ?? null,
+    themeFromAvatar: stored.themeFromAvatar ?? false,
+    avatarTheme: stored.avatarTheme ?? null,
     createdAt: stored.createdAt,
   }
 }
@@ -82,6 +97,8 @@ function readSession(): PublicUser | null {
       ...parsed,
       bio: parsed.bio ?? '',
       avatarUrl: parsed.avatarUrl ?? null,
+      themeFromAvatar: parsed.themeFromAvatar ?? false,
+      avatarTheme: parsed.avatarTheme ?? null,
       createdAt: parsed.createdAt ?? Date.now(),
     }
   } catch {
@@ -120,6 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         voiceId: null,
         bio: bio?.trim() ?? '',
         avatarUrl: null,
+        themeFromAvatar: false,
+        avatarTheme: null,
         createdAt: Date.now(),
       }
       users[normalizedEmail] = stored
@@ -165,7 +184,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const updateProfile = useCallback(
-    async ({ name, bio, avatarUrl }: { name: string; bio?: string; avatarUrl?: string | null }) => {
+    async ({
+      name,
+      bio,
+      avatarUrl,
+      themeFromAvatar,
+      avatarTheme,
+    }: {
+      name: string
+      bio?: string
+      avatarUrl?: string | null
+      themeFromAvatar?: boolean
+      avatarTheme?: AvatarThemePalette | null
+    }) => {
       const trimmedName = name.trim()
       if (!trimmedName) {
         throw new Error('Name cannot be empty.')
@@ -177,7 +208,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!stored) return
       stored.name = trimmedName
       if (bio !== undefined) stored.bio = bio.trim()
-      if (avatarUrl !== undefined) stored.avatarUrl = avatarUrl
+      if (avatarUrl !== undefined) {
+        stored.avatarUrl = avatarUrl
+        if (!avatarUrl) {
+          stored.themeFromAvatar = false
+          stored.avatarTheme = null
+        }
+      }
+      if (themeFromAvatar !== undefined) stored.themeFromAvatar = themeFromAvatar
+      if (avatarTheme !== undefined) stored.avatarTheme = avatarTheme
+      if (!stored.avatarUrl) {
+        stored.themeFromAvatar = false
+        stored.avatarTheme = null
+      }
       users[current.email] = stored
       writeUsers(users)
       const next: PublicUser = {
@@ -185,6 +228,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: trimmedName,
         bio: stored.bio,
         avatarUrl: stored.avatarUrl ?? null,
+        themeFromAvatar: stored.themeFromAvatar ?? false,
+        avatarTheme: stored.avatarTheme ?? null,
       }
       writeSession(next)
       setUser(next)
