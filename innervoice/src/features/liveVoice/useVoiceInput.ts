@@ -194,11 +194,12 @@ export function useVoiceInput({
         const text = await transcribeLiveAudio(blob)
         const trimmed = text.trim()
         if (trimmed) {
-          setTranscript(trimmed)
           await Promise.resolve(onFinalRef.current(trimmed))
-          setTranscript('')
         } else {
           onSilentRef.current?.()
+          if (runningRef.current && sessionIdRef.current === sid) {
+            window.setTimeout(() => startCycle(stream, sid), CYCLE_RESTART_MS)
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Transcription failed.'
@@ -207,7 +208,6 @@ export function useVoiceInput({
         } else {
           onSilentRef.current?.()
         }
-      } finally {
         if (runningRef.current && sessionIdRef.current === sid) {
           window.setTimeout(() => startCycle(stream, sid), CYCLE_RESTART_MS)
         }
