@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Mic, MicOff, PhoneOff, Radio, Sparkles, Volume2, X } from 'lucide-react'
 import type { Emotion } from '../../types'
 import { useAuth } from '../../AuthContext'
+import { BreathingVoiceOrb, type OrbEmotion, type OrbState } from '../../components/BreathingVoiceOrb'
 import { useLiveConversation } from './useLiveConversation'
 import { useVoiceInput } from './useVoiceInput'
 import { useVoiceOutput } from './useVoiceOutput'
@@ -53,43 +54,6 @@ function isBackchannel(text: string): boolean {
 
 function currentTimestamp() {
   return Date.now()
-}
-
-function LiveOrb({ level, active }: { level: number; active: boolean }) {
-  const scale = active ? 0.96 + Math.min(0.34, level * 0.36) : 1
-  const glow = active ? 0.18 + Math.min(0.62, level * 0.68) : 0.1
-  return (
-    <div className="relative mx-auto flex h-36 w-36 items-center justify-center sm:h-56 sm:w-56">
-      {[0, 1, 2].map((ring) => (
-        <motion.span
-          key={ring}
-          className="absolute inset-0 rounded-full border border-accent/35"
-          animate={
-            active
-              ? { scale: [1, 1.14 + ring * 0.07, 1], opacity: [0.5, 0.1, 0.5] }
-              : { scale: [1, 1.03, 1], opacity: [0.18, 0.24, 0.18] }
-          }
-          transition={{
-            duration: active ? 1.4 + ring * 0.2 : 4.6 + ring * 0.3,
-            repeat: Infinity,
-            ease: 'easeInOut',
-            delay: ring * 0.18,
-          }}
-        />
-      ))}
-      <motion.div
-        className="relative flex h-24 w-24 items-center justify-center rounded-full border border-accent/40 bg-accent-soft sm:h-32 sm:w-32"
-        animate={{
-          scale: active ? scale : [1, 1.03, 1],
-          boxShadow: `0 0 ${20 + level * 52}px rgb(95 143 139 / ${glow.toFixed(2)})`,
-          filter: active ? `blur(${Math.max(0, level * 0.4).toFixed(2)}px)` : 'blur(0px)',
-        }}
-        transition={{ duration: active ? 0.11 : 2.4, ease: 'easeOut', repeat: active ? 0 : Infinity }}
-      >
-        <div className="h-6 w-6 rounded-full bg-accent" />
-      </motion.div>
-    </div>
-  )
 }
 
 function WaveStrip({ level, active }: { level: number; active: boolean }) {
@@ -406,6 +370,39 @@ export function LiveVoiceController() {
 
   const combinedLevel = useMemo(() => Math.max(inputLevel * 0.9, outputLevel), [inputLevel, outputLevel])
 
+  const orbState: OrbState = useMemo(() => {
+    if (isSpeaking) return 'speaking'
+    if (state.isProcessing) return 'processing'
+    if (isListening) return 'listening'
+    return 'idle'
+  }, [isListening, isSpeaking, state.isProcessing])
+
+  const orbEmotion: OrbEmotion = useMemo(() => {
+    const supported: OrbEmotion[] = ['neutral', 'anxious', 'sad', 'hopeful', 'grateful', 'angry']
+    // Look at the most recent user message that carried an emotion; fall back
+    // to neutral so the orb stays calm by default.
+    for (let i = state.conversationHistory.length - 1; i >= 0; i -= 1) {
+      const msg = state.conversationHistory[i]
+      if (msg.role !== 'user' || !msg.emotion) continue
+      if ((supported as string[]).includes(msg.emotion)) return msg.emotion as OrbEmotion
+    }
+    return 'neutral'
+  }, [state.conversationHistory])
+
+  const [orbSize, setOrbSize] = useState(280)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = () => {
+      const w = window.innerWidth
+      if (w < 480) setOrbSize(200)
+      else if (w < 768) setOrbSize(240)
+      else setOrbSize(300)
+    }
+    handler()
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+
   return (
     <>
       <AnimatePresence>
@@ -447,7 +444,14 @@ export function LiveVoiceController() {
 
               <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col justify-center gap-3 overflow-y-auto px-3 py-4 sm:gap-4 sm:px-5 sm:py-6">
                 <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-3 shadow-[0_10px_40px_rgba(0,0,0,0.08)] sm:p-4">
-                  <LiveOrb level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
+                  <div className="flex items-center justify-center">
+                    <BreathingVoiceOrb
+                      state={orbState}
+                      emotion={orbEmotion}
+                      level={combinedLevel}
+                      size={orbSize}
+                    />
+                  </div>
                   <WaveStrip level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <p className="mt-3 text-center text-sm text-text-secondary">{statusDetail}</p>
                   {!isSupported && (
