@@ -3,18 +3,6 @@ import type { User } from '@supabase/supabase-js'
 import type { AvatarThemePalette } from './lib/avatarPalette'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 
-interface StoredUser {
-  email: string
-  name: string
-  passwordHash: string
-  voiceId: string | null
-  bio: string
-  avatarUrl: string | null
-  themeFromAvatar: boolean
-  avatarTheme: AvatarThemePalette | null
-  createdAt: number
-}
-
 export interface PublicUser {
   email: string
   name: string
@@ -44,27 +32,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const USERS_KEY = 'innervoice-users'
 const SESSION_KEY = 'innervoice-session'
-const CONVERSATIONS_KEY = 'innervoice-conversations'
-const MIGRATION_PREFIX = 'innervoice-supabase-migrated'
-
-function readUsers(): Record<string, StoredUser> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(USERS_KEY) || '{}') as Record<string, StoredUser>
-    for (const email of Object.keys(raw)) {
-      const u = raw[email]
-      if (u.bio === undefined) u.bio = ''
-      if (u.createdAt === undefined) u.createdAt = Date.now()
-      if (u.avatarUrl === undefined) u.avatarUrl = null
-      if (u.themeFromAvatar === undefined) u.themeFromAvatar = false
-      if (u.avatarTheme === undefined) u.avatarTheme = null
-    }
-    return raw
-  } catch {
-    return {}
-  }
-}
 
 function readSession(): PublicUser | null {
   try {
@@ -92,132 +60,58 @@ function writeSession(user: PublicUser | null) {
   }
 }
 
-function readStoredConversations() {
-  try {
-    const raw = localStorage.getItem(CONVERSATIONS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as Array<{
-      id: string
-      title: string
-      voiceId: string
-      createdAt: number
-      updatedAt: number
-      messages: Array<{
-        id: string
-        role: 'user' | 'assistant'
-        text: string
-        audioUrl?: string
-        timestamp: number
-        emotion?: string
-      }>
-    }>
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
+interface ProfileRow {
+  email: string | null
+  name: string | null
+  bio: string | null
+  avatar_url: string | null
+  theme_from_avatar: boolean | null
+  avatar_theme: AvatarThemePalette | null
+  voice_id: string | null
+  created_at: string | null
+}
+
+function mapProfileToPublic(profile: ProfileRow, fallbackEmail = ''): PublicUser {
+  return {
+    email: profile.email ?? fallbackEmail,
+    name: profile.name ?? 'InnerVoice User',
+    bio: profile.bio ?? '',
+    avatarUrl: profile.avatar_url ?? null,
+    themeFromAvatar: profile.theme_from_avatar ?? false,
+    avatarTheme: profile.avatar_theme ?? null,
+    voiceId: profile.voice_id ?? null,
+    createdAt: profile.created_at ? Date.parse(profile.created_at) : Date.now(),
   }
 }
 
-async function ensureProfileForUser(
-  authUser: User,
-  fallback?: Partial<StoredUser>,
-): Promise<PublicUser> {
+async function getOrCreateProfile(userId: string, email: string, defaults?: { name?: string; bio?: string }) {
   if (!supabase) throw new Error('Supabase is not configured.')
-  const { data: existing, error: profileError } = await supabase
+  const { data: existing, error: fetchError } = await supabase
     .from('profiles')
     .select('email,name,bio,avatar_url,theme_from_avatar,avatar_theme,voice_id,created_at')
-    .eq('id', authUser.id)
+    .eq('id', userId)
     .maybeSingle()
 
-  if (profileError) throw profileError
+  if (fetchError) throw fetchError
 
   if (!existing) {
-    const createdAtIso = new Date(fallback?.createdAt ?? Date.now()).toISOString()
-    const initialProfile = {
-      id: authUser.id,
-      email: authUser.email ?? fallback?.email ?? '',
-      name: fallback?.name ?? authUser.user_metadata?.name ?? 'InnerVoice User',
-      bio: fallback?.bio ?? authUser.user_metadata?.bio ?? '',
-      avatar_url: fallback?.avatarUrl ?? null,
-      theme_from_avatar: fallback?.themeFromAvatar ?? false,
-      avatar_theme: fallback?.avatarTheme ?? null,
-      voice_id: fallback?.voiceId ?? null,
-      created_at: createdAtIso,
+    const payload = {
+      id: userId,
+      email,
+      name: defaults?.name?.trim() || 'InnerVoice User',
+      bio: defaults?.bio?.trim() || '',
+      avatar_url: null as string | null,
+      theme_from_avatar: false,
+      avatar_theme: null as AvatarThemePalette | null,
+      voice_id: null as string | null,
+      created_at: new Date().toISOString(),
     }
-    const { error: insertError } = await supabase.from('profiles').upsert(initialProfile, { onConflict: 'id' })
+    const { error: insertError } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
     if (insertError) throw insertError
-    return {
-      email: initialProfile.email,
-      name: initialProfile.name,
-      bio: initialProfile.bio,
-      avatarUrl: initialProfile.avatar_url,
-      themeFromAvatar: initialProfile.theme_from_avatar,
-      avatarTheme: initialProfile.avatar_theme as AvatarThemePalette | null,
-      voiceId: initialProfile.voice_id,
-      createdAt: Date.parse(initialProfile.created_at),
-    }
+    return mapProfileToPublic(payload, email)
   }
 
-  return {
-    email: existing.email ?? authUser.email ?? '',
-    name: existing.name ?? authUser.user_metadata?.name ?? 'InnerVoice User',
-    bio: existing.bio ?? '',
-    avatarUrl: existing.avatar_url ?? null,
-    themeFromAvatar: existing.theme_from_avatar ?? false,
-    avatarTheme: (existing.avatar_theme as AvatarThemePalette | null) ?? null,
-    voiceId: existing.voice_id ?? null,
-    createdAt: existing.created_at ? Date.parse(existing.created_at) : Date.now(),
-  }
-}
-
-async function migrateLocalDataIfNeeded(authUser: User) {
-  if (!supabase) return
-  const migrationKey = `${MIGRATION_PREFIX}:${authUser.id}`
-  if (localStorage.getItem(migrationKey) === 'done') return
-
-  const users = readUsers()
-  const localUser = users[authUser.email?.toLowerCase() ?? '']
-  if (!localUser) {
-    localStorage.setItem(migrationKey, 'done')
-    return
-  }
-
-  await ensureProfileForUser(authUser, localUser)
-
-  const localConversations = readStoredConversations()
-  const relevantConversations = localUser.voiceId
-    ? localConversations.filter((conversation) => conversation.voiceId === localUser.voiceId)
-    : localConversations
-
-  for (const conversation of relevantConversations) {
-    const { error: conversationError } = await supabase.from('conversations').upsert(
-      {
-        id: conversation.id,
-        user_id: authUser.id,
-        title: conversation.title,
-        voice_id: conversation.voiceId,
-        created_at: new Date(conversation.createdAt).toISOString(),
-        updated_at: new Date(conversation.updatedAt).toISOString(),
-      },
-      { onConflict: 'id' },
-    )
-    if (conversationError) throw conversationError
-
-    if (!conversation.messages.length) continue
-    const rows = conversation.messages.map((message) => ({
-      id: message.id,
-      conversation_id: conversation.id,
-      role: message.role,
-      text: message.text,
-      audio_url: message.audioUrl ?? null,
-      emotion: message.emotion ?? null,
-      ts: message.timestamp,
-      created_at: new Date(message.timestamp).toISOString(),
-    }))
-    const { error: messageError } = await supabase.from('messages').upsert(rows, { onConflict: 'id' })
-    if (messageError) throw messageError
-  }
-
-  localStorage.setItem(migrationKey, 'done')
+  return mapProfileToPublic(existing as ProfileRow, email)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -236,8 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        await migrateLocalDataIfNeeded(authUser)
-        const profile = await ensureProfileForUser(authUser)
+        const profile = await getOrCreateProfile(authUser.id, authUser.email ?? '')
         writeSession(profile)
         if (!cancelled) setUser(profile)
       } catch (error) {
@@ -285,11 +178,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const authUser = data.user
       if (!authUser) throw new Error('Registration failed. Please try again.')
 
-      const profile = await ensureProfileForUser(authUser, {
-        email: normalizedEmail,
+      const profile = await getOrCreateProfile(authUser.id, normalizedEmail, {
         name: name.trim(),
         bio: bio?.trim() ?? '',
-        createdAt: Date.now(),
       })
 
       writeSession(profile)
@@ -313,8 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const authUser = data.user
     if (!authUser) throw new Error('Invalid email or password.')
 
-    await migrateLocalDataIfNeeded(authUser)
-    const profile = await ensureProfileForUser(authUser)
+    const profile = await getOrCreateProfile(authUser.id, normalizedEmail)
     writeSession(profile)
     setUser(profile)
   }, [])

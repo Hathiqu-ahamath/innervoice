@@ -3,31 +3,22 @@ import type { Conversation, Message } from '../types'
 import { useAuth } from '../AuthContext'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 
-const STORAGE_KEY = 'innervoice-conversations'
-
 function makeTitle(messages: Message[]) {
   const firstUser = messages.find((m) => m.role === 'user')?.text ?? 'New Conversation'
   return firstUser.length > 60 ? `${firstUser.slice(0, 57)}...` : firstUser
 }
 
-function readStoredConversations(): Conversation[] {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw) as Conversation[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
 export function useConversations() {
   const { isAuthenticated } = useAuth()
-  const [conversations, setConversations] = useState<Conversation[]>(() => readStoredConversations())
+  const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!isAuthenticated || !isSupabaseConfigured || !supabase) return
+    if (!isAuthenticated || !isSupabaseConfigured || !supabase) {
+      setConversations([])
+      setActiveId(null)
+      return
+    }
     const client = supabase
 
     let cancelled = false
@@ -47,7 +38,7 @@ export function useConversations() {
         .order('updated_at', { ascending: false })
 
       if (conversationError) {
-        if (!cancelled) setConversations(readStoredConversations())
+        if (!cancelled) setConversations([])
         return
       }
 
@@ -86,7 +77,6 @@ export function useConversations() {
 
       if (!cancelled) {
         setConversations(next)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       }
     }
 
@@ -120,8 +110,6 @@ export function useConversations() {
           setActiveId(created.id)
           targetConversationId = created.id
         }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-
         if (isSupabaseConfigured && supabase) {
           const client = supabase
           const conversationIdForSave = targetConversationId
@@ -178,7 +166,6 @@ export function useConversations() {
     (id: string) => {
       setConversations((prev) => {
         const next = prev.filter((item) => item.id !== id)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
         return next
       })
       setActiveId((prev) => (prev === id ? null : prev))
@@ -192,7 +179,6 @@ export function useConversations() {
   )
 
   const clearConversations = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY)
     setConversations([])
     setActiveId(null)
   }, [])
