@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AudioLines, Clock, LogOut, MessageCircle, Mic2, User, UserPlus } from 'lucide-react'
+import { AudioLines, Clock, LogOut, MessageCircle, Mic2, Radio, User, UserPlus } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import { ProfileAvatar } from './ProfileAvatar'
 import { ThemeToggle } from './ThemeToggle'
@@ -95,6 +95,13 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
               icon={<MessageCircle size={14} />}
               onClick={() => onNavigate('chat')}
               active={step === 'chat'}
+              disabled={!user?.voiceId}
+            />
+            <NavButton
+              label="Live"
+              icon={<Radio size={14} />}
+              onClick={() => onNavigate('live')}
+              active={step === 'live'}
               disabled={!user?.voiceId}
             />
             {hasHistory && (

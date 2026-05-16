@@ -9,7 +9,7 @@ interface UseVoiceInputOptions {
   onSilentCapture?: () => void
 }
 
-const SILENCE_AFTER_SPEECH_MS = 500
+const SILENCE_AFTER_SPEECH_MS = 300
 const MAX_RECORDING_MS = 12000
 const SPEECH_RMS_THRESHOLD = 0.012
 

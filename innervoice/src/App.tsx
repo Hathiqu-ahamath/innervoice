@@ -12,7 +12,7 @@ import { Navbar } from './components/Navbar'
 import { ProfilePanel } from './components/ProfilePanel'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { RecordingView } from './components/RecordingView'
-import { LiveVoiceController } from './features/liveVoice/LiveVoiceController'
+import { LiveVoicePage } from './features/liveVoice/LiveVoicePage'
 import { useConversations } from './hooks/useConversations'
 import type { AppStep, Emotion, Message } from './types'
 
@@ -251,7 +251,7 @@ export default function App() {
 
   const navigate = useCallback(
     (next: AppStep) => {
-      if (next === 'chat' && !voiceId) {
+      if ((next === 'chat' || next === 'live') && !voiceId) {
         setStep('recording')
         return
       }
@@ -384,6 +384,9 @@ export default function App() {
               onSend={handleSendMessage}
             />
           )}
+          {step === 'live' && (
+            <LiveVoicePage onLeave={() => navigate('chat')} />
+          )}
         </motion.section>
 
         <footer className="mt-4 flex flex-col gap-3 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
@@ -415,7 +418,6 @@ export default function App() {
           </div>
         </footer>
       </main>
-      <LiveVoiceController />
     </div>
   )
 }
