@@ -73,6 +73,7 @@ export function LiveVoiceController() {
   const { user } = useAuth()
   const voiceId = user?.voiceId ?? null
   const [isLiveMode, setIsLiveMode] = useState(false)
+  const [isSessionActive, setIsSessionActive] = useState(false)
   const [latestReply, setLatestReply] = useState('')
   const [lastUserCaption, setLastUserCaption] = useState('')
   const [statusDetail, setStatusDetail] = useState('Tap the mic to start live mode.')
@@ -96,7 +97,7 @@ export function LiveVoiceController() {
     },
     onError: (message) => setStatusDetail(message),
     onFinalTranscript: async (finalText) => {
-      if (!liveModeRef.current) return
+      if (!liveModeRef.current || !isSessionActive) return
       const sessionId = sessionIdRef.current
       const normalized = finalText.trim().toLowerCase()
       const now = currentTimestamp()
@@ -152,31 +153,29 @@ export function LiveVoiceController() {
     if (!isLiveMode) return
     const timer = window.setInterval(() => {
       if (!liveModeRef.current) return
+      if (!isSessionActive) return
       if (state.isProcessing || isSpeaking) return
       const inactiveFor = currentTimestamp() - lastActivityAtRef.current
       if (inactiveFor >= SILENCE_AUTO_CLOSE_MS) {
-        setStatusDetail('No voice detected. Closing live mode...')
+        setStatusDetail('No voice detected. Session ended.')
         setTimeout(() => {
           if (!liveModeRef.current) return
-          liveModeRef.current = false
           sessionIdRef.current += 1
           stopListening()
           stopSpeaking()
-          setIsLiveMode(false)
+          setIsSessionActive(false)
           setLatestReply('')
           setLastUserCaption('')
-          resetConversation()
-          setStatusDetail('Tap the mic to start live mode.')
+          setStatusDetail('Session ended. Tap Start Session.')
         }, 450)
       }
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [isLiveMode, isSpeaking, resetConversation, state.isProcessing, stopListening, stopSpeaking])
+  }, [isLiveMode, isSessionActive, isSpeaking, state.isProcessing, stopListening, stopSpeaking])
 
-  const startLiveMode = useCallback(() => {
+  const startSession = useCallback(() => {
+    setIsSessionActive(true)
     sessionIdRef.current += 1
-    setIsLiveMode(true)
-    liveModeRef.current = true
     lastActivityAtRef.current = currentTimestamp()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
     setStatusDetail('Starting...')
@@ -196,29 +195,46 @@ export function LiveVoiceController() {
     })
   }, [speak, startListening, voiceId])
 
-  const stopLiveMode = useCallback(() => {
+  const endSession = useCallback(() => {
+    sessionIdRef.current += 1
+    setIsSessionActive(false)
+    stopListening()
+    stopSpeaking()
+    setLatestReply('')
+    setLastUserCaption('')
+    setStatusDetail('Session ended. Tap Start Session.')
+  }, [stopListening, stopSpeaking])
+
+  const closePopup = useCallback(() => {
     liveModeRef.current = false
     sessionIdRef.current += 1
+    setIsSessionActive(false)
     setIsLiveMode(false)
     stopListening()
     stopSpeaking()
-    setStatusDetail('Tap the mic to start live mode.')
-  }, [stopListening, stopSpeaking])
-
-  const endAndReset = useCallback(() => {
-    stopLiveMode()
     setLatestReply('')
     setLastUserCaption('')
     resetConversation()
-  }, [resetConversation, stopLiveMode])
+    setStatusDetail('Tap the mic to start live mode.')
+  }, [resetConversation, stopListening, stopSpeaking])
+
+  const openPopupAndStart = useCallback(() => {
+    setIsLiveMode(true)
+    liveModeRef.current = true
+    startSession()
+  }, [startSession])
 
   useEffect(() => {
     if (!isLiveMode) return
+    if (!isSessionActive) {
+      setStatusDetail('Session ended. Tap Start Session.')
+      return
+    }
     if (state.isProcessing) setStatusDetail('Processing...')
     else if (isSpeaking) setStatusDetail('Speaking...')
     else if (isListening) setStatusDetail('Listening...')
     else setStatusDetail('Ready')
-  }, [isLiveMode, isListening, isSpeaking, state.isProcessing])
+  }, [isLiveMode, isListening, isSessionActive, isSpeaking, state.isProcessing])
 
   const combinedLevel = useMemo(() => Math.max(inputLevel * 0.9, outputLevel), [inputLevel, outputLevel])
 
@@ -254,7 +270,7 @@ export function LiveVoiceController() {
                 <button
                   type="button"
                   aria-label="Close live voice mode"
-                  onClick={endAndReset}
+                  onClick={closePopup}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-elevated text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
                 >
                   <X size={16} />
@@ -323,11 +339,11 @@ export function LiveVoiceController() {
                   <span className="text-xs text-text-tertiary">{state.conversationHistory.length} turns in memory</span>
                   <button
                     type="button"
-                    onClick={endAndReset}
+                    onClick={isSessionActive ? endSession : startSession}
                     className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
                   >
                     <PhoneOff size={12} />
-                    End Session
+                    {isSessionActive ? 'End Session' : 'Start Session'}
                   </button>
                 </div>
               </div>
@@ -339,10 +355,10 @@ export function LiveVoiceController() {
       <button
         type="button"
         aria-label={isLiveMode ? 'Stop live voice mode' : 'Start live voice mode'}
-        onClick={isLiveMode ? stopLiveMode : startLiveMode}
+        onClick={isLiveMode ? closePopup : openPopupAndStart}
         className="fixed bottom-6 right-4 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full border border-border bg-accent text-white shadow-[0_0_20px_var(--color-accent-soft)] transition hover:scale-[1.03]"
       >
-        {isLiveMode ? (isListening ? <Mic size={20} /> : <Volume2 size={20} />) : <MicOff size={20} />}
+        {isLiveMode ? (isSessionActive ? (isListening ? <Mic size={20} /> : <Volume2 size={20} />) : <MicOff size={20} />) : <MicOff size={20} />}
       </button>
     </>
   )

@@ -105,6 +105,40 @@ export async function getFutureSelfResponse(messages: Message[]): Promise<string
   return data.choices?.[0]?.message?.content?.trim() ?? '[thoughtful] I am here with you. Tell me more.'
 }
 
+export async function getFutureSelfResponseFast(messages: Message[]): Promise<string> {
+  if (!OPENAI_KEY) {
+    const response = MOCK_RESPONSES[mockIndex % MOCK_RESPONSES.length]
+    mockIndex += 1
+    return response
+  }
+
+  const response = await fetch(OPENAI_BASE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      temperature: 0.7,
+      max_tokens: 120,
+      messages: [
+        { role: 'system', content: systemPrompt(messages) },
+        ...messages.map((msg) => ({ role: msg.role, content: msg.text })),
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('OpenAI request failed. Check VITE_OPENAI_API_KEY or OPENAI_API_KEY.')
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+  return data.choices?.[0]?.message?.content?.trim() ?? '[thoughtful] I am here with you. Tell me more.'
+}
+
 export async function getGreetingResponse(userName?: string): Promise<string> {
   const fallback = userName
     ? `[softly] Hey ${userName}. [warm] I'm right here. [short pause] Take your time; we can start wherever you are.`

@@ -1,4 +1,4 @@
-import { detectEmotion, getFutureSelfResponse } from '../../api/openai'
+import { detectEmotion, getFutureSelfResponseFast } from '../../api/openai'
 import { stripAudioTags } from '../../api/elevenlabs'
 import type { Emotion, Message } from '../../types'
 
@@ -18,7 +18,7 @@ export function createUserMessage(text: string): Message {
 }
 
 export async function createAssistantMessage(history: Message[]): Promise<{ raw: Message; display: Message }> {
-  const rawText = await getFutureSelfResponse(history)
+  const rawText = await getFutureSelfResponseFast(history)
   const raw = createMessage('assistant', rawText)
   const display = createMessage('assistant', stripAudioTags(rawText))
   return { raw, display }
