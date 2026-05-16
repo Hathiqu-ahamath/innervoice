@@ -1,38 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
-import { stripAudioTags, textToSpeech } from '../../api/elevenlabs'
+import { stripAudioTags } from '../../api/elevenlabs'
 import type { Emotion } from '../../types'
+import { fetchLiveSpeechBlob } from './liveTts'
 
 interface SpeakInput {
   text: string
   emotion: Emotion
   voiceId: string | null
-  /** Live chat: use reliable non-streaming TTS (v3 then v2 fallback). */
-  stable?: boolean
-}
-
-async function fetchVoiceBlob(
-  text: string,
-  voiceId: string,
-  emotion: Emotion,
-  stable: boolean,
-): Promise<Blob> {
-  if (stable) {
-    const blob = await textToSpeech(text, voiceId, emotion, { realtime: false })
-    if (blob.size >= 200) return blob
-    throw new Error('Voice service returned empty audio. Check ElevenLabs in Supabase secrets.')
-  }
-
-  try {
-    const blob = await textToSpeech(text, voiceId, emotion, { realtime: true })
-    if (blob.size > 200) return blob
-  } catch {
-    // fall through
-  }
-  const blob = await textToSpeech(text, voiceId, emotion, { realtime: false })
-  if (blob.size < 200) {
-    throw new Error('Voice service returned empty audio. Check ElevenLabs in Supabase secrets.')
-  }
-  return blob
+  /** Pre-fetched audio from an earlier parallel request (live pipeline). */
+  prefetchedBlob?: Blob | null
 }
 
 export function useVoiceOutput() {
@@ -133,9 +109,7 @@ export function useVoiceOutput() {
         }
         void audio
           .play()
-          .then(() => {
-            attachMeter(audio)
-          })
+          .then(() => attachMeter(audio))
           .catch((err) => {
             URL.revokeObjectURL(url)
             audioRef.current = null
@@ -149,12 +123,15 @@ export function useVoiceOutput() {
   )
 
   const speak = useCallback(
-    async ({ text, emotion, voiceId, stable = true }: SpeakInput) => {
+    async ({ text, emotion, voiceId, prefetchedBlob }: SpeakInput) => {
       stopSpeaking()
       setIsSpeaking(true)
 
       if (voiceId) {
-        const blob = await fetchVoiceBlob(text, voiceId, emotion, stable)
+        const blob =
+          prefetchedBlob && prefetchedBlob.size >= 200
+            ? prefetchedBlob
+            : await fetchLiveSpeechBlob(text, voiceId, emotion)
         await playBlob(blob)
         return
       }

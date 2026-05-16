@@ -5,6 +5,7 @@ import type { Emotion } from '../../types'
 import { useAuth } from '../../AuthContext'
 import { BreathingVoiceOrb, type OrbEmotion, type OrbState } from '../../components/BreathingVoiceOrb'
 import { useLiveConversation } from './useLiveConversation'
+import { fetchLiveSpeechBlob } from './liveTts'
 import { useVoiceInput } from './useVoiceInput'
 import { useVoiceOutput } from './useVoiceOutput'
 
@@ -163,16 +164,28 @@ export function LiveVoicePage({ onLeave }: Props) {
   // Speak a reply, pausing the mic around it so the AI voice isn't
   // accidentally transcribed as user input.
   const speakReply = useCallback(
-    async (replyText: string, replyEmotion: Emotion, turnId: number) => {
+    async (
+      replyText: string,
+      replyEmotion: Emotion,
+      turnId: number,
+      prefetchedBlob: Blob | null,
+    ) => {
       if (!voiceId) {
         setStickyStatus('No cloned voice — complete Voice Train to hear replies in your voice.')
         resumeCapture()
         return
       }
-      pauseCapture()
       setStatusDetail('Speaking...')
+      // Start TTS fetch while mic still open; pause capture in parallel with network wait.
+      const audioPromise =
+        prefetchedBlob && prefetchedBlob.size >= 200
+          ? Promise.resolve(prefetchedBlob)
+          : fetchLiveSpeechBlob(replyText, voiceId, replyEmotion)
+      pauseCapture()
       try {
-        await speak({ text: replyText, emotion: replyEmotion, voiceId, stable: true })
+        const blob = await audioPromise
+        if (activeTurnRef.current !== turnId) return
+        await speak({ text: replyText, emotion: replyEmotion, voiceId, prefetchedBlob: blob })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Voice output failed.'
         setStickyStatus(msg)
@@ -253,7 +266,11 @@ export function LiveVoicePage({ onLeave }: Props) {
         }
 
         setLatestReply(turn.displayText)
-        await speakReply(turn.spokenText, turn.emotion, turnId)
+        const ttsPrefetch =
+          voiceId
+            ? fetchLiveSpeechBlob(turn.spokenText, voiceId, turn.emotion).catch(() => null)
+            : Promise.resolve(null)
+        await speakReply(turn.spokenText, turn.emotion, turnId, await ttsPrefetch)
       } finally {
         if (activeTurnRef.current === turnId) {
           isProcessingRef.current = false
@@ -281,7 +298,7 @@ export function LiveVoicePage({ onLeave }: Props) {
         askedHelpRef.current = true
         const sessionId = sessionIdRef.current
         stopListening()
-        void speak({ text: 'May I help you?', emotion: 'neutral', voiceId, stable: true })
+        void speak({ text: 'May I help you?', emotion: 'neutral', voiceId })
           .then(() => {
             if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
             lastActivityAtRef.current = Date.now()
@@ -322,7 +339,7 @@ export function LiveVoicePage({ onLeave }: Props) {
     void (async () => {
       await startListening()
       if (cancelled || !sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, stable: true }).catch((err) => {
+      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId }).catch((err) => {
         console.warn('[live-voice] greeting failed', err)
         setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
       })
@@ -363,7 +380,7 @@ export function LiveVoicePage({ onLeave }: Props) {
       setStatusDetail("I'm listening...")
       await startListening()
       if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, stable: true }).catch(() => {})
+      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId }).catch(() => {})
     })()
   }, [speak, startListening, voiceId])
 

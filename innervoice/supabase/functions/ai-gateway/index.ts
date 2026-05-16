@@ -232,7 +232,11 @@ async function textToSpeech(payload: {
   }
 }
 
-async function transcribeAudio(payload: { audioBase64: string; mimeType: string }) {
+async function transcribeAudio(payload: {
+  audioBase64: string
+  mimeType: string
+  whisperOnly?: boolean
+}) {
   const openAiKey = Deno.env.get('OPENAI_API_KEY')
   const elevenKey = Deno.env.get('ELEVENLABS_API_KEY')
   const bytes = decodeBase64(payload.audioBase64)
@@ -255,6 +259,13 @@ async function transcribeAudio(payload: { audioBase64: string; mimeType: string 
       const text = (data?.text as string | undefined)?.trim() ?? ''
       if (text) return { text }
     }
+    if (payload.whisperOnly) {
+      throw new Error(`Speech-to-text failed (${response.status}): ${await readErrorText(response)}`)
+    }
+  }
+
+  if (payload.whisperOnly) {
+    throw new Error('Speech-to-text failed. Set OPENAI_API_KEY in Supabase secrets.')
   }
 
   if (elevenKey) {
@@ -312,7 +323,9 @@ Deno.serve(async (request) => {
         return json(200, { ok: true, data })
       }
       case 'transcribeAudio': {
-        const data = await transcribeAudio(payload as { audioBase64: string; mimeType: string })
+        const data = await transcribeAudio(
+          payload as { audioBase64: string; mimeType: string; whisperOnly?: boolean },
+        )
         return json(200, { ok: true, data })
       }
       default:

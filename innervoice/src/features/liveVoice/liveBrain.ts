@@ -50,7 +50,7 @@ export async function getStableLiveReply(messages: Message[]): Promise<string> {
     request: {
       model: 'gpt-4o-mini',
       temperature: 0.75,
-      max_tokens: 100,
+      max_tokens: 72,
       presence_penalty: 0.25,
       frequency_penalty: 0.2,
       messages: [

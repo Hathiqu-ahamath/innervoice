@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { transcribeAudio } from '../../api/speechToText'
+import { transcribeLiveAudio } from './liveSpeechToText'
 
 interface UseVoiceInputOptions {
   onFinalTranscript: (text: string) => void | Promise<void>
@@ -9,12 +9,12 @@ interface UseVoiceInputOptions {
   onSilentCapture?: () => void
 }
 
-// Live mode: allow a natural pause before sending (too short = bad transcripts).
-const SILENCE_MS = 520
-const MIN_RECORD_MS = 380
+// Balance: short enough to feel live, long enough for clean transcripts.
+const SILENCE_MS = 400
+const MIN_RECORD_MS = 280
 const MAX_RECORD_MS = 18000
 const RMS_THRESHOLD = 0.005
-const MIN_BLOB_BYTES = 1000
+const MIN_BLOB_BYTES = 900
 const CYCLE_RESTART_MS = 50
 
 export function useVoiceInput({
@@ -191,7 +191,7 @@ export function useVoiceInput({
       }
 
       try {
-        const text = await transcribeAudio(blob)
+        const text = await transcribeLiveAudio(blob)
         const trimmed = text.trim()
         if (trimmed) {
           setTranscript(trimmed)
