@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles } from 'lucide-react'
-import { cloneVoice, stripAudioTags, textToSpeech } from './api/elevenlabs'
+import { cloneVoice, getLastTtsBackend, stripAudioTags, textToSpeech } from './api/elevenlabs'
 import { detectEmotion, getFutureSelfResponse, getGreetingResponse } from './api/openai'
 import { useAuth } from './AuthContext'
 import { AuthScreen } from './components/AuthScreen'
@@ -40,6 +40,7 @@ export default function App() {
     useConversations()
 
   const greetedFor = useRef<string | null>(null)
+  const showedV2FallbackWarning = useRef(false)
 
   const hasElevenLabsKey = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY || import.meta.env.ELEVENLABS_API_KEY)
   const demoMode = !(import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY)
@@ -72,6 +73,10 @@ export default function App() {
       setIsProcessing(true)
       const greetingWithTags = await getGreetingResponse(user.name)
       const audioBlob = await textToSpeech(greetingWithTags, voiceId, 'hopeful')
+      if (getLastTtsBackend() === 'speech_v2_fallback' && !showedV2FallbackWarning.current) {
+        showedV2FallbackWarning.current = true
+        setError('Eleven v3 is unavailable right now, so voice fell back to v2 (reduced emotional tags).')
+      }
       const greeting: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -126,6 +131,10 @@ export default function App() {
       try {
         const responseTextWithTags = await getFutureSelfResponse(updatedMessages)
         const audioBlob = await textToSpeech(responseTextWithTags, voiceId, userEmotion)
+        if (getLastTtsBackend() === 'speech_v2_fallback' && !showedV2FallbackWarning.current) {
+          showedV2FallbackWarning.current = true
+          setError('Eleven v3 is unavailable right now, so voice fell back to v2 (reduced emotional tags).')
+        }
         const assistantMessage: Message = {
           id: crypto.randomUUID(),
           role: 'assistant',

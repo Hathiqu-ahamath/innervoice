@@ -16,8 +16,20 @@ let mockIndex = 0
 
 export function detectEmotion(text: string): Emotion {
   const value = text.toLowerCase()
-  if (/(sad|depressed|lonely|grief|heartbroken|crying|miss|loss)/.test(value)) return 'sad'
-  if (/(anxious|worried|scared|fear|afraid|nervous|panic|stress|overwhelmed)/.test(value)) return 'anxious'
+  if (
+    /(sad|depressed|lonely|grief|heartbroken|crying|miss|loss|hurt|hurting|pain|injured|hit|beaten|abused|broken|trauma)/.test(
+      value,
+    )
+  ) {
+    return 'sad'
+  }
+  if (
+    /(anxious|worried|scared|fear|afraid|nervous|panic|stress|overwhelmed|unsafe|threat|attack|attacked|shaking|terrified)/.test(
+      value,
+    )
+  ) {
+    return 'anxious'
+  }
   if (/(grateful|thankful|appreciate|blessed)/.test(value)) return 'grateful'
   if (/(hope|hopeful|excited|happy|joy)/.test(value)) return 'hopeful'
   return 'neutral'
