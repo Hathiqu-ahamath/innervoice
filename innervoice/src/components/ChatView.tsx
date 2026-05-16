@@ -9,6 +9,8 @@ import { useAudioVisualizer } from '../hooks/useAudioVisualizer'
 interface Props {
   messages: Message[]
   isProcessing: boolean
+  showThinking: boolean
+  thinkingLabel: string
   onSend: (text: string) => void
 }
 
@@ -26,7 +28,7 @@ function VisualBars({ levels }: { levels: number[] }) {
   )
 }
 
-export function ChatView({ messages, isProcessing, onSend }: Props) {
+export function ChatView({ messages, isProcessing, showThinking, thinkingLabel, onSend }: Props) {
   const [input, setInput] = useState('')
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(true)
   const [assistantSpeaking, setAssistantSpeaking] = useState(false)
@@ -44,7 +46,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
-  }, [messages, isProcessing])
+  }, [messages, isProcessing, thinkingLabel])
 
   const canSend = useMemo(() => input.trim().length > 0 && !isProcessing, [input, isProcessing])
 
@@ -121,11 +123,11 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
             </motion.div>
           ))}
         </AnimatePresence>
-        {isProcessing && (
+        {showThinking && (
           <div className="animate-fade-in rounded-xl border border-accent/25 bg-elevated p-3 text-sm text-text-secondary">
             <span className="inline-flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
-              Your future self is composing a reply…
+              {thinkingLabel}
             </span>
           </div>
         )}

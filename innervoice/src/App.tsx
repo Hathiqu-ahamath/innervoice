@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles } from 'lucide-react'
 import { cloneVoice, getLastTtsBackend, stripAudioTags, textToSpeech } from './api/elevenlabs'
@@ -14,14 +14,67 @@ import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { RecordingView } from './components/RecordingView'
 import { LiveVoiceController } from './features/liveVoice/LiveVoiceController'
 import { useConversations } from './hooks/useConversations'
-import type { AppStep, Message } from './types'
+import type { AppStep, Emotion, Message } from './types'
 
 const ONBOARDED_KEY = 'innervoice-onboarded'
+const THINKING_LABELS = [
+  'Listening...',
+  'Taking that in...',
+  'Finding the right words...',
+  'Breathing with you for a second...',
+]
+const HEAVY_EMOTIONS = new Set<Emotion>(['anxious', 'sad', 'fearful', 'stressed', 'grieving', 'hurt', 'lonely'])
 
 function pickInitialStep(isAuthenticated: boolean, voiceId: string | null): AppStep {
   if (!isAuthenticated) return 'auth'
   if (!voiceId) return 'recording'
   return 'chat'
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function randomBetween(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+function pickThinkingLabel(emotion?: Emotion) {
+  if (emotion && HEAVY_EMOTIONS.has(emotion)) {
+    return Math.random() > 0.5 ? 'Taking that in...' : 'Breathing with you for a second...'
+  }
+  return THINKING_LABELS[randomBetween(0, THINKING_LABELS.length - 1)]
+}
+
+function thinkingDelayForEmotion(emotion: Emotion) {
+  return HEAVY_EMOTIONS.has(emotion) ? randomBetween(1500, 2400) : randomBetween(900, 1800)
+}
+
+function revealChunks(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return ['I am here with you.']
+  return normalized.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g)?.map((chunk) => chunk.trim()) ?? [normalized]
+}
+
+async function revealAssistantMessage(
+  messageId: string,
+  text: string,
+  setMessages: Dispatch<SetStateAction<Message[]>>,
+) {
+  let visibleText = ''
+  const chunks = revealChunks(text)
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index]
+    visibleText = visibleText ? `${visibleText} ${chunk}` : chunk
+    setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, text: visibleText } : message)))
+
+    if (index < chunks.length - 1) {
+      await wait(Math.min(950, Math.max(360, chunk.length * 14)))
+    }
+  }
 }
 
 export default function App() {
@@ -31,6 +84,8 @@ export default function App() {
   const [step, setStep] = useState<AppStep>(() => pickInitialStep(isAuthenticated, voiceId))
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [showThinking, setShowThinking] = useState(false)
+  const [thinkingLabel, setThinkingLabel] = useState(THINKING_LABELS[0])
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
@@ -65,6 +120,16 @@ export default function App() {
       saveConversation(voiceId, messages)
     }
   }, [messages, saveConversation, voiceId])
+
+  useEffect(() => {
+    if (!showThinking) return undefined
+
+    const intervalId = window.setInterval(() => {
+      setThinkingLabel(pickThinkingLabel())
+    }, 1300)
+
+    return () => window.clearInterval(intervalId)
+  }, [showThinking])
 
   const speakGreeting = useCallback(async () => {
     if (!voiceId || !user) return
@@ -128,25 +193,45 @@ export default function App() {
       const updatedMessages = [...messages, userMessage]
       setMessages(updatedMessages)
       setIsProcessing(true)
+      setShowThinking(true)
+      setThinkingLabel(pickThinkingLabel(userEmotion))
       setError(null)
       try {
+        const startedAt = Date.now()
         const responseTextWithTags = await getFutureSelfResponse(updatedMessages)
-        const audioBlob = await textToSpeech(responseTextWithTags, voiceId, userEmotion)
+        await wait(Math.max(0, thinkingDelayForEmotion(userEmotion) - (Date.now() - startedAt)))
+
+        const assistantMessageId = crypto.randomUUID()
+        const assistantMessage: Message = {
+          id: assistantMessageId,
+          role: 'assistant',
+          text: '',
+          timestamp: Date.now(),
+        }
+        const audioPromise = textToSpeech(responseTextWithTags, voiceId, userEmotion)
+          .then((audioBlob) => ({ audioBlob, audioError: null as unknown }))
+          .catch((audioError: unknown) => ({ audioBlob: null, audioError }))
+
+        setMessages((prev) => [...prev, assistantMessage])
+        setShowThinking(false)
+        await revealAssistantMessage(assistantMessageId, stripAudioTags(responseTextWithTags), setMessages)
+
+        const { audioBlob, audioError } = await audioPromise
+        if (audioError) throw audioError
+        if (!audioBlob) throw new Error('Voice playback failed.')
         if (getLastTtsBackend() === 'speech_v2_fallback' && !showedV2FallbackWarning.current) {
           showedV2FallbackWarning.current = true
           setError('Eleven v3 is unavailable right now, so voice fell back to v2 (reduced emotional tags).')
         }
-        const assistantMessage: Message = {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          text: stripAudioTags(responseTextWithTags),
-          timestamp: Date.now(),
-          audioUrl: URL.createObjectURL(audioBlob),
-        }
-        setMessages((prev) => [...prev, assistantMessage])
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === assistantMessageId ? { ...message, audioUrl: URL.createObjectURL(audioBlob) } : message,
+          ),
+        )
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong while sending your message.')
       } finally {
+        setShowThinking(false)
         setIsProcessing(false)
       }
     },
@@ -286,7 +371,15 @@ export default function App() {
             />
           )}
           {step === 'cloning' && <CloningView />}
-          {step === 'chat' && <ChatView messages={messages} isProcessing={isProcessing} onSend={handleSendMessage} />}
+          {step === 'chat' && (
+            <ChatView
+              messages={messages}
+              isProcessing={isProcessing}
+              showThinking={showThinking}
+              thinkingLabel={thinkingLabel}
+              onSend={handleSendMessage}
+            />
+          )}
         </motion.section>
 
         <footer className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
