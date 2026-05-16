@@ -261,12 +261,32 @@ export function LiveVoicePage({ onLeave }: Props) {
     handleTranscriptRef.current = handleTranscript
   }, [handleTranscript])
 
-  // Auto-close after long silence
+  // "May I help you?" prompt after 2s of silence, auto-close after long silence
+  const askedHelpRef = useRef(false)
   useEffect(() => {
     if (!isSessionActive) return
+    askedHelpRef.current = false
     const timer = window.setInterval(() => {
       if (!isSessionActive || state.isProcessing || isSpeaking) return
-      if (Date.now() - lastActivityAtRef.current >= SILENCE_AUTO_CLOSE_MS) {
+      const silent = Date.now() - lastActivityAtRef.current
+
+      // After 2s with no activity, ask once
+      if (silent >= 2000 && !askedHelpRef.current && isListening) {
+        askedHelpRef.current = true
+        const sessionId = sessionIdRef.current
+        stopListening()
+        void speak({ text: '[softly] May I help you?', emotion: 'neutral', voiceId, realtime: false })
+          .then(() => {
+            if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
+            lastActivityAtRef.current = Date.now()
+            askedHelpRef.current = false
+            return startListening()
+          })
+          .catch(() => {})
+      }
+
+      // Auto-close after long silence
+      if (silent >= SILENCE_AUTO_CLOSE_MS) {
         sessionIdRef.current += 1
         sessionActiveRef.current = false
         stopListening()
@@ -276,9 +296,9 @@ export function LiveVoicePage({ onLeave }: Props) {
         setLastUserCaption('')
         setStickyStatus('No voice detected. Session ended.', 8000)
       }
-    }, 1000)
+    }, 500)
     return () => window.clearInterval(timer)
-  }, [isSessionActive, isSpeaking, setStickyStatus, state.isProcessing, stopListening, stopSpeaking])
+  }, [isListening, isSessionActive, isSpeaking, setStickyStatus, speak, startListening, state.isProcessing, stopListening, stopSpeaking, voiceId])
 
   // Start session on mount
   useEffect(() => {
