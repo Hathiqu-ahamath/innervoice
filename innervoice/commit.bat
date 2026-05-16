@@ -47,7 +47,8 @@ if %ERRORLEVEL%==0 (
   exit /b 0
 )
 
-git commit -m "%COMMIT_MSG%" -m "Co-authored-by: Ahamath Hathiqu <ahamathhathiqu@gmail.com>"
+rem Co-authored-by trailer is added automatically by .git/hooks/prepare-commit-msg
+git commit -m "%COMMIT_MSG%"
 if errorlevel 1 (
   echo [commit] FAILED — fix the issue above, then run commit.bat again with the same message.
   exit /b %ERRORLEVEL%
