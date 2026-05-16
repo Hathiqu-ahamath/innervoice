@@ -5,6 +5,7 @@ import type { Message } from '../types'
 import { FollowUpSuggestions } from './FollowUpSuggestions'
 import { VoiceInput } from './VoiceInput'
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer'
+import { BreathingVoiceOrb } from './BreathingVoiceOrb'
 
 interface Props {
   messages: Message[]
@@ -12,6 +13,7 @@ interface Props {
   showThinking: boolean
   thinkingLabel: string
   onSend: (text: string) => void
+  onOpenLive?: () => void
 }
 
 function VisualBars({ levels }: { levels: number[] }) {
@@ -28,7 +30,7 @@ function VisualBars({ levels }: { levels: number[] }) {
   )
 }
 
-export function ChatView({ messages, isProcessing, showThinking, thinkingLabel, onSend }: Props) {
+export function ChatView({ messages, isProcessing, showThinking, thinkingLabel, onSend, onOpenLive }: Props) {
   const [input, setInput] = useState('')
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(true)
   const [assistantSpeaking, setAssistantSpeaking] = useState(false)
@@ -58,7 +60,7 @@ export function ChatView({ messages, isProcessing, showThinking, thinkingLabel, 
   }
 
   return (
-    <div className="flex h-[calc(100dvh-235px)] min-h-[360px] max-h-[720px] flex-col gap-3 sm:h-[64vh] sm:min-h-[460px] sm:gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-3 sm:gap-4">
       <header className="space-y-1">
         <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
           <Waves size={18} className="text-accent" />
@@ -68,6 +70,22 @@ export function ChatView({ messages, isProcessing, showThinking, thinkingLabel, 
           Tap the mic to record, then tap again to send. Open the lightbulb for ideas.
         </p>
       </header>
+
+      {onOpenLive && (
+        <button
+          type="button"
+          onClick={onOpenLive}
+          className="glass-panel flex items-center justify-between gap-3 rounded-2xl border border-accent/35 px-3 py-3 transition hover:border-accent/60"
+        >
+          <div className="text-left">
+            <p className="text-sm font-semibold text-text-primary">Open Live Chat</p>
+            <p className="text-xs text-text-secondary">Tap to talk in real-time with 3D voice mode</p>
+          </div>
+          <div className="shrink-0">
+            <BreathingVoiceOrb state="idle" emotion="hopeful" level={0.2} size={84} />
+          </div>
+        </button>
+      )}
 
       <div className="glass-panel flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5">
         <p className="text-xs text-text-secondary">

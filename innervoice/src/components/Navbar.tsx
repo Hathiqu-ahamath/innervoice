@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { AudioLines, Clock, LogOut, MessageCircle, Mic2, Radio, User, UserPlus } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { AudioLines, Clock, LogOut, Menu, MessageCircle, Mic2, Radio, User, UserPlus, X } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import { ProfileAvatar } from './ProfileAvatar'
 import { ThemeToggle } from './ThemeToggle'
@@ -38,16 +38,37 @@ function NavButton({
       }`}
     >
       {icon}
-      <span className="hidden sm:inline">{label}</span>
+      <span>{label}</span>
     </button>
   )
 }
 
 export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProfile }: Props) {
   const { user, isAuthenticated, logout } = useAuth()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const go = (next: AppStep) => {
+    onNavigate(next)
+    setMobileMenuOpen(false)
+  }
+
+  const openHistory = () => {
+    onOpenHistory()
+    setMobileMenuOpen(false)
+  }
+
+  const openProfile = () => {
+    onOpenProfile()
+    setMobileMenuOpen(false)
+  }
+
+  const logOut = () => {
+    logout()
+    setMobileMenuOpen(false)
+  }
 
   return (
-    <nav className="glass-panel sticky top-2 z-30 mb-3 flex flex-col gap-3 rounded-2xl border border-border px-3 py-2.5 shadow-sm sm:static sm:mb-5 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:shadow-none">
+    <nav className="glass-panel sticky top-2 z-30 mb-3 rounded-2xl border border-border px-3 py-2.5 shadow-sm sm:mb-4">
       <div className="flex min-w-0 items-center gap-2">
         {isAuthenticated && user ? (
           <button
@@ -71,14 +92,24 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
             <p className="text-xs text-text-secondary">Future-self companion</p>
           )}
         </div>
+        <div className="ml-auto sm:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-elevated text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+          >
+            {mobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
+          </button>
+        </div>
       </div>
 
-      <div className="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 overflow-x-auto px-1 pb-0.5 sm:mx-0 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:px-0 sm:pb-0">
+      <div className="mt-2 hidden w-full items-center gap-1.5 overflow-visible sm:flex sm:flex-wrap sm:justify-end">
         {!isAuthenticated && (
           <NavButton
             label="Register"
             icon={<UserPlus size={14} />}
-            onClick={() => onNavigate('auth')}
+            onClick={() => go('auth')}
             active={step === 'auth'}
           />
         )}
@@ -87,32 +118,75 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
             <NavButton
               label="Voice Train"
               icon={<Mic2 size={14} />}
-              onClick={() => onNavigate('recording')}
+              onClick={() => go('recording')}
               active={step === 'recording' || step === 'cloning'}
             />
             <NavButton
               label="Chat"
               icon={<MessageCircle size={14} />}
-              onClick={() => onNavigate('chat')}
+              onClick={() => go('chat')}
               active={step === 'chat'}
               disabled={!user?.voiceId}
             />
             <NavButton
               label="Live"
               icon={<Radio size={14} />}
-              onClick={() => onNavigate('live')}
+              onClick={() => go('live')}
               active={step === 'live'}
               disabled={!user?.voiceId}
             />
             {hasHistory && (
-              <NavButton label="History" icon={<Clock size={14} />} onClick={onOpenHistory} />
+              <NavButton label="History" icon={<Clock size={14} />} onClick={openHistory} />
             )}
-            <NavButton label="Profile" icon={<User size={14} />} onClick={onOpenProfile} />
-            <NavButton label="Log out" icon={<LogOut size={14} />} onClick={logout} />
+            <NavButton label="Profile" icon={<User size={14} />} onClick={openProfile} />
+            <NavButton label="Log out" icon={<LogOut size={14} />} onClick={logOut} />
           </>
         )}
         <ThemeToggle />
       </div>
+
+      {mobileMenuOpen && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3 sm:hidden">
+          {!isAuthenticated && (
+            <NavButton
+              label="Register"
+              icon={<UserPlus size={14} />}
+              onClick={() => go('auth')}
+              active={step === 'auth'}
+            />
+          )}
+          {isAuthenticated && (
+            <>
+              <NavButton
+                label="Voice Train"
+                icon={<Mic2 size={14} />}
+                onClick={() => go('recording')}
+                active={step === 'recording' || step === 'cloning'}
+              />
+              <NavButton
+                label="Chat"
+                icon={<MessageCircle size={14} />}
+                onClick={() => go('chat')}
+                active={step === 'chat'}
+                disabled={!user?.voiceId}
+              />
+              <NavButton
+                label="Live"
+                icon={<Radio size={14} />}
+                onClick={() => go('live')}
+                active={step === 'live'}
+                disabled={!user?.voiceId}
+              />
+              {hasHistory && <NavButton label="History" icon={<Clock size={14} />} onClick={openHistory} />}
+              <NavButton label="Profile" icon={<User size={14} />} onClick={openProfile} />
+              <NavButton label="Log out" icon={<LogOut size={14} />} onClick={logOut} />
+            </>
+          )}
+          <div className="pt-1">
+            <ThemeToggle />
+          </div>
+        </div>
+      )}
     </nav>
   )
 }

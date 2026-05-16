@@ -25,9 +25,8 @@ const THINKING_LABELS = [
 ]
 const HEAVY_EMOTIONS = new Set<Emotion>(['anxious', 'sad', 'fearful', 'stressed', 'grieving', 'hurt', 'lonely'])
 
-function pickInitialStep(isAuthenticated: boolean, voiceId: string | null): AppStep {
+function pickInitialStep(isAuthenticated: boolean): AppStep {
   if (!isAuthenticated) return 'auth'
-  if (!voiceId) return 'recording'
   return 'chat'
 }
 
@@ -81,7 +80,7 @@ export default function App() {
   const { user, isAuthenticated, setUserVoiceId } = useAuth()
   const voiceId = user?.voiceId ?? null
 
-  const [step, setStep] = useState<AppStep>(() => pickInitialStep(isAuthenticated, voiceId))
+  const [step, setStep] = useState<AppStep>(() => pickInitialStep(isAuthenticated))
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [showThinking, setShowThinking] = useState(false)
@@ -108,11 +107,7 @@ export default function App() {
       setMessages([])
       return
     }
-    if (!voiceId) {
-      setStep((current) => (current === 'auth' || current === 'home' ? 'recording' : current))
-      return
-    }
-    setStep((current) => (current === 'auth' ? 'chat' : current))
+    setStep((current) => (current === 'auth' || current === 'home' ? 'chat' : current))
   }, [isAuthenticated, voiceId])
 
   useEffect(() => {
@@ -181,7 +176,6 @@ export default function App() {
 
   const handleSendMessage = useCallback(
     async (text: string) => {
-      if (!voiceId) return
       const userMessage: Message = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -208,9 +202,11 @@ export default function App() {
           text: '',
           timestamp: Date.now(),
         }
-        const audioPromise = textToSpeech(responseTextWithTags, voiceId, userEmotion)
-          .then((audioBlob) => ({ audioBlob, audioError: null as unknown }))
-          .catch((audioError: unknown) => ({ audioBlob: null, audioError }))
+        const audioPromise = voiceId
+          ? textToSpeech(responseTextWithTags, voiceId, userEmotion)
+              .then((audioBlob) => ({ audioBlob, audioError: null as unknown }))
+              .catch((audioError: unknown) => ({ audioBlob: null, audioError }))
+          : Promise.resolve({ audioBlob: null as Blob | null, audioError: null as unknown })
 
         setMessages((prev) => [...prev, assistantMessage])
         setShowThinking(false)
@@ -218,16 +214,17 @@ export default function App() {
 
         const { audioBlob, audioError } = await audioPromise
         if (audioError) throw audioError
-        if (!audioBlob) throw new Error('Voice playback failed.')
-        if (getLastTtsBackend() === 'speech_v2_fallback' && !showedV2FallbackWarning.current) {
-          showedV2FallbackWarning.current = true
-          setError('Eleven v3 is unavailable right now, so voice fell back to v2 (reduced emotional tags).')
+        if (audioBlob) {
+          if (getLastTtsBackend() === 'speech_v2_fallback' && !showedV2FallbackWarning.current) {
+            showedV2FallbackWarning.current = true
+            setError('Eleven v3 is unavailable right now, so voice fell back to v2 (reduced emotional tags).')
+          }
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantMessageId ? { ...message, audioUrl: URL.createObjectURL(audioBlob) } : message,
+            ),
+          )
         }
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === assistantMessageId ? { ...message, audioUrl: URL.createObjectURL(audioBlob) } : message,
-          ),
-        )
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong while sending your message.')
       } finally {
@@ -251,16 +248,12 @@ export default function App() {
 
   const navigate = useCallback(
     (next: AppStep) => {
-      if ((next === 'chat' || next === 'live') && !voiceId) {
-        setStep('recording')
-        return
-      }
       if (next === 'recording') {
         greetedFor.current = null
       }
       setStep(next)
     },
-    [voiceId],
+    [],
   )
 
   return (
@@ -307,7 +300,7 @@ export default function App() {
         }}
       />
 
-      <main className="relative z-10 mx-auto flex min-h-dvh w-full max-w-md flex-col px-3 py-3 pb-24 sm:px-4 sm:py-5 sm:pb-6 lg:max-w-2xl">
+      <main className="relative z-10 mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:max-w-2xl">
         <Navbar
           step={step}
           hasHistory={conversations.length > 0}
@@ -348,7 +341,7 @@ export default function App() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="glass-panel glow-accent rounded-2xl border border-border p-3 shadow-sm sm:p-4"
+          className="glass-panel glow-accent min-h-0 flex-1 overflow-hidden rounded-2xl border border-border p-3 shadow-sm sm:p-4"
         >
           {step === 'auth' && <AuthScreen />}
           {step === 'home' && (
@@ -382,6 +375,7 @@ export default function App() {
               showThinking={showThinking}
               thinkingLabel={thinkingLabel}
               onSend={handleSendMessage}
+              onOpenLive={() => navigate('live')}
             />
           )}
           {step === 'live' && (
@@ -389,7 +383,8 @@ export default function App() {
           )}
         </motion.section>
 
-        <footer className="mt-4 flex flex-col gap-3 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
+        {step !== 'live' && (
+        <footer className="mt-3 shrink-0 flex flex-col gap-3 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
           <p className="inline-flex items-center gap-1">
             <Sparkles size={12} className="text-accent" /> Powered by OpenAI + ElevenLabs
           </p>
@@ -417,6 +412,7 @@ export default function App() {
             </button>
           </div>
         </footer>
+        )}
       </main>
     </div>
   )
