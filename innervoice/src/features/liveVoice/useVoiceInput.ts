@@ -20,7 +20,7 @@ export function useVoiceInput({
   const [inputLevel, setInputLevel] = useState(0)
   const streamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
-  const cycleTimerRef = useRef<number | null>(null)
+  const cycleRafRef = useRef<number | null>(null)
   const runningRef = useRef(false)
   const meterContextRef = useRef<AudioContext | null>(null)
   const meterAnalyserRef = useRef<AnalyserNode | null>(null)
@@ -48,9 +48,9 @@ export function useVoiceInput({
 
   const stopListening = useCallback(() => {
     runningRef.current = false
-    if (cycleTimerRef.current !== null) {
-      window.clearInterval(cycleTimerRef.current)
-      cycleTimerRef.current = null
+    if (cycleRafRef.current !== null) {
+      cancelAnimationFrame(cycleRafRef.current)
+      cycleRafRef.current = null
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop()
@@ -116,13 +116,13 @@ export function useVoiceInput({
           if (event.data.size > 0) chunks.push(event.data)
         }
         recorder.onstop = async () => {
-          if (cycleTimerRef.current !== null) {
-            window.clearInterval(cycleTimerRef.current)
-            cycleTimerRef.current = null
+          if (cycleRafRef.current !== null) {
+            cancelAnimationFrame(cycleRafRef.current)
+            cycleRafRef.current = null
           }
           if (!runningRef.current) return
           const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
-          if (blob.size > 1200) {
+          if (blob.size > 2200) {
             try {
               const text = await transcribeAudio(blob)
               const trimmed = text.trim()
@@ -134,7 +134,10 @@ export function useVoiceInput({
                 setTranscript('')
               }
             } catch (err) {
-              onError?.(err instanceof Error ? err.message : 'Live transcription failed.')
+              const message = err instanceof Error ? err.message : 'Live transcription failed.'
+              if (!/too short|no speech detected/i.test(message)) {
+                onError?.(message)
+              }
             }
           }
           if (runningRef.current) runCycle()
@@ -142,7 +145,7 @@ export function useVoiceInput({
         recorder.start(250)
 
         const data = new Uint8Array(64)
-        cycleTimerRef.current = window.setInterval(() => {
+        const tick = () => {
           if (!runningRef.current || recorder.state === 'inactive') return
           let rms = 0
           if (meterAnalyserRef.current) {
@@ -176,8 +179,11 @@ export function useVoiceInput({
           const shouldStopForMaxLen = elapsed > maxUtteranceMs
           if (shouldStopForSilence || shouldStopForMaxLen) {
             recorder.stop()
+            return
           }
-        }, 120)
+          cycleRafRef.current = requestAnimationFrame(tick)
+        }
+        cycleRafRef.current = requestAnimationFrame(tick)
       }
 
       runCycle()
