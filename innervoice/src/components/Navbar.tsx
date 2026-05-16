@@ -1,8 +1,21 @@
-import { useState, type ReactNode } from 'react'
-import { AudioLines, Clock, LogOut, Menu, MessageCircle, Mic2, Radio, User, UserPlus, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  AudioLines,
+  ChevronDown,
+  Clock,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Mic2,
+  Radio,
+  User,
+  UserPlus,
+  X,
+} from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import { ProfileAvatar } from './ProfileAvatar'
 import { ThemeToggle } from './ThemeToggle'
+import { BreathingVoiceOrb } from './BreathingVoiceOrb'
 import type { AppStep } from '../types'
 
 interface Props {
@@ -46,6 +59,8 @@ function NavButton({
 export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProfile }: Props) {
   const { user, isAuthenticated, logout } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
+  const optionsRef = useRef<HTMLDivElement | null>(null)
 
   const go = (next: AppStep) => {
     onNavigate(next)
@@ -65,88 +80,165 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
   const logOut = () => {
     logout()
     setMobileMenuOpen(false)
+    setOptionsOpen(false)
   }
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (optionsRef.current && !optionsRef.current.contains(target)) {
+        setOptionsOpen(false)
+      }
+    }
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOptionsOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onEscape)
+    }
+  }, [])
 
   return (
     <nav className="glass-panel sticky top-2 z-30 mb-2 rounded-3xl border border-border/80 px-3 py-2.5 shadow-[0_10px_30px_rgb(0_0_0_/_0.22)] sm:mb-3 sm:px-4">
-      <div className="flex min-w-0 items-center gap-2 sm:flex-1">
-        {isAuthenticated && user ? (
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {isAuthenticated && user ? (
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="shrink-0 rounded-full transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              aria-label="Open profile"
+            >
+              <ProfileAvatar name={user.name} avatarUrl={user.avatarUrl} size="sm" />
+            </button>
+          ) : (
+            <div className="glow-accent flex h-8 w-8 items-center justify-center rounded-full border border-accent/40 bg-gradient-to-br from-accent to-accent-hover text-white">
+              <AudioLines size={16} />
+            </div>
+          )}
+          <div className="min-w-0 leading-tight">
+            <p className="text-[10px] uppercase tracking-[0.28em] text-text-tertiary">InnerVoice</p>
+            <p className="truncate text-xs text-text-secondary">Future-self companion</p>
+          </div>
+        </div>
+
+        {isAuthenticated ? (
           <button
             type="button"
-            onClick={onOpenProfile}
-            className="shrink-0 rounded-full transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            aria-label="Open profile"
+            onClick={() => go('live')}
+            disabled={!user?.voiceId}
+            className={`mx-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-medium transition sm:px-3 ${
+              step === 'live'
+                ? 'border-accent/60 bg-accent-soft text-text-primary shadow-[0_0_18px_var(--color-accent-soft)]'
+                : 'border-border/80 bg-elevated/90 text-text-secondary hover:border-accent/60 hover:text-text-primary hover:shadow-[0_0_16px_var(--color-accent-soft)]'
+            } disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            <ProfileAvatar name={user.name} avatarUrl={user.avatarUrl} size="sm" />
+            <BreathingVoiceOrb state={step === 'live' ? 'speaking' : 'listening'} emotion="hopeful" level={0.22} size={28} />
+            <span className="hidden sm:inline">Open Live Chat</span>
+            <span className="sm:hidden">Live</span>
           </button>
         ) : (
-          <div className="glow-accent flex h-8 w-8 items-center justify-center rounded-full border border-accent/40 bg-gradient-to-br from-accent to-accent-hover text-white">
-            <AudioLines size={16} />
-          </div>
+          <div />
         )}
-        <div className="min-w-0 leading-tight">
-          <p className="text-[10px] uppercase tracking-[0.28em] text-text-tertiary">InnerVoice</p>
-          <p className="text-xs text-text-secondary">Future-self companion</p>
-        </div>
-        {isAuthenticated && (
-          <button
-            type="button"
-            onClick={() => go('recording')}
-            className={`hidden items-center gap-1 rounded-full border px-3 py-1 text-xs transition sm:inline-flex ${
-              step === 'recording' || step === 'cloning'
-                ? 'border-accent/60 bg-accent-soft/90 text-text-primary'
-                : 'border-border/80 bg-elevated/90 text-text-secondary hover:border-accent/60 hover:text-text-primary'
-            }`}
-          >
-            <Mic2 size={12} />
-            Voice Train
-          </button>
-        )}
-        <div className="ml-auto sm:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((prev) => !prev)}
-            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-elevated/90 text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
-          >
-            {mobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
-          </button>
-        </div>
-      </div>
 
-      <div className="mt-2 hidden w-full items-center gap-1.5 overflow-visible sm:mt-0 sm:ml-3 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-        {!isAuthenticated && (
-          <NavButton
-            label="Register"
-            icon={<UserPlus size={14} />}
-            onClick={() => go('auth')}
-            active={step === 'auth'}
-          />
-        )}
-        {isAuthenticated && (
-          <>
-            <NavButton label="Profile" icon={<User size={14} />} onClick={openProfile} />
-            <NavButton
-              label="Chat"
-              icon={<MessageCircle size={14} />}
-              onClick={() => go('chat')}
-              active={step === 'chat'}
-              disabled={!user?.voiceId}
-            />
-            {hasHistory && (
-              <NavButton label="History" icon={<Clock size={14} />} onClick={openHistory} />
+        <div className="ml-auto flex items-center justify-end gap-1.5">
+          <div className="hidden items-center gap-1.5 sm:flex">
+            {!isAuthenticated && (
+              <NavButton
+                label="Register"
+                icon={<UserPlus size={14} />}
+                onClick={() => go('auth')}
+                active={step === 'auth'}
+              />
             )}
-            <NavButton
-              label="Live"
-              icon={<Radio size={14} />}
-              onClick={() => go('live')}
-              active={step === 'live'}
-              disabled={!user?.voiceId}
-            />
-            <NavButton label="Log out" icon={<LogOut size={14} />} onClick={logOut} />
-          </>
-        )}
-        <ThemeToggle />
+            {isAuthenticated && (
+              <>
+                <NavButton
+                  label="Chat"
+                  icon={<MessageCircle size={14} />}
+                  onClick={() => go('chat')}
+                  active={step === 'chat'}
+                  disabled={!user?.voiceId}
+                />
+                <div ref={optionsRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setOptionsOpen((prev) => !prev)}
+                    className="inline-flex h-10 items-center gap-1.5 rounded-full border border-border/80 bg-elevated/90 px-3.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+                    aria-expanded={optionsOpen}
+                    aria-haspopup="menu"
+                  >
+                    Options
+                    <ChevronDown size={14} className={`transition ${optionsOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {optionsOpen && (
+                    <div
+                      role="menu"
+                      className="glass-panel absolute right-0 top-12 z-40 flex min-w-[190px] flex-col gap-1 rounded-2xl border border-border/80 p-2 shadow-[0_12px_35px_rgb(0_0_0_/_0.3)]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          openProfile()
+                          setOptionsOpen(false)
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                      >
+                        <User size={14} /> Profile
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          openHistory()
+                          setOptionsOpen(false)
+                        }}
+                        disabled={!hasHistory}
+                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary disabled:opacity-40"
+                      >
+                        <Clock size={14} /> History
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          go('recording')
+                          setOptionsOpen(false)
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                      >
+                        <Mic2 size={14} /> Voice Train
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          logOut()
+                          setOptionsOpen(false)
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-xs text-text-secondary transition hover:border-accent/40 hover:bg-accent-soft/60 hover:text-text-primary"
+                      >
+                        <LogOut size={14} /> Log out
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            <ThemeToggle />
+          </div>
+
+          <div className="sm:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-elevated/90 text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+            >
+              {mobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
+            </button>
+          </div>
+        </div>
       </div>
 
       {mobileMenuOpen && (
@@ -161,7 +253,6 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
           )}
           {isAuthenticated && (
             <>
-              <NavButton label="Profile" icon={<User size={14} />} onClick={openProfile} />
               <NavButton
                 label="Chat"
                 icon={<MessageCircle size={14} />}
@@ -169,7 +260,6 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
                 active={step === 'chat'}
                 disabled={!user?.voiceId}
               />
-              {hasHistory && <NavButton label="History" icon={<Clock size={14} />} onClick={openHistory} />}
               <NavButton
                 label="Live"
                 icon={<Radio size={14} />}
@@ -177,13 +267,38 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
                 active={step === 'live'}
                 disabled={!user?.voiceId}
               />
-              <NavButton label="Log out" icon={<LogOut size={14} />} onClick={logOut} />
-              <NavButton
-                label="Voice Train"
-                icon={<Mic2 size={14} />}
-                onClick={() => go('recording')}
-                active={step === 'recording' || step === 'cloning'}
-              />
+              <div className="rounded-2xl border border-border/80 bg-elevated/80 p-2">
+                <p className="mb-1 px-2 text-[11px] uppercase tracking-wider text-text-tertiary">Options</p>
+                <button
+                  type="button"
+                  onClick={openProfile}
+                  className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-xs text-text-secondary transition hover:bg-accent-soft/60 hover:text-text-primary"
+                >
+                  <User size={14} /> Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={openHistory}
+                  disabled={!hasHistory}
+                  className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-xs text-text-secondary transition hover:bg-accent-soft/60 hover:text-text-primary disabled:opacity-40"
+                >
+                  <Clock size={14} /> History
+                </button>
+                <button
+                  type="button"
+                  onClick={() => go('recording')}
+                  className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-xs text-text-secondary transition hover:bg-accent-soft/60 hover:text-text-primary"
+                >
+                  <Mic2 size={14} /> Voice Train
+                </button>
+                <button
+                  type="button"
+                  onClick={logOut}
+                  className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-xs text-text-secondary transition hover:bg-accent-soft/60 hover:text-text-primary"
+                >
+                  <LogOut size={14} /> Log out
+                </button>
+              </div>
             </>
           )}
           <div className="pt-1">
