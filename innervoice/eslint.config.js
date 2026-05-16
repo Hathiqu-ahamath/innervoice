@@ -20,6 +20,10 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': 'off',
+      // Setting state inside effects is the documented pattern for syncing with
+      // external state (e.g. React Context, browser APIs). Downgrade to warn
+      // rather than error so legitimate sync code is allowed.
+      'react-hooks/set-state-in-effect': 'warn',
     },
   },
 )

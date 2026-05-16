@@ -1,65 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { AudioLines, Sparkles } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { cloneVoice, stripAudioTags, textToSpeech } from './api/elevenlabs'
-import { detectEmotion, getFutureSelfResponse } from './api/openai'
+import { detectEmotion, getFutureSelfResponse, getGreetingResponse } from './api/openai'
+import { useAuth } from './AuthContext'
+import { AuthScreen } from './components/AuthScreen'
 import { ChatView } from './components/ChatView'
 import { CloningView } from './components/CloningView'
 import { HistoryPanel } from './components/HistoryPanel'
+import { Navbar } from './components/Navbar'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { RecordingView } from './components/RecordingView'
-import { ThemeToggle } from './components/ThemeToggle'
 import { useConversations } from './hooks/useConversations'
-import { useVoiceId } from './hooks/useVoiceId'
 import type { AppStep, Message } from './types'
 
 const ONBOARDED_KEY = 'innervoice-onboarded'
 
-function HomeScreen({ onBegin }: { onBegin: () => void }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className="relative z-10 flex min-h-[360px] flex-col items-center justify-center gap-4 text-center"
-    >
-      <div className="glow-red flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-red-600 to-white/70 text-2xl text-black">
-        <AudioLines />
-      </div>
-      <h1 className="bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-5xl font-bold text-transparent">InnerVoice</h1>
-      <p className="text-text-secondary">Have a real conversation with your future self.</p>
-      <button
-        type="button"
-        onClick={onBegin}
-        className="rounded-full border border-red-500/40 bg-red-600 px-8 py-3 font-semibold text-white shadow-[0_0_24px_rgba(239,68,68,0.35)] transition hover:scale-[1.02]"
-      >
-        Begin Your Journey
-      </button>
-    </motion.div>
-  )
-}
-
-function StepIndicator({ step }: { step: AppStep }) {
-  const steps: AppStep[] = ['recording', 'cloning', 'chat']
-  return (
-    <div className="flex items-center gap-3">
-      {steps.map((value, index) => {
-        const active = steps.indexOf(step) >= index
-        return (
-          <span
-            key={value}
-            aria-current={step === value ? 'step' : undefined}
-            className={`h-2 rounded-full transition-all ${active ? 'bg-red-500' : 'bg-zinc-700'} ${step === value ? 'w-10' : 'w-6'}`}
-          />
-        )
-      })}
-    </div>
-  )
+function pickInitialStep(isAuthenticated: boolean, voiceId: string | null): AppStep {
+  if (!isAuthenticated) return 'auth'
+  if (!voiceId) return 'recording'
+  return 'chat'
 }
 
 export default function App() {
-  const { voiceId, setVoiceId } = useVoiceId()
-  const [step, setStep] = useState<AppStep>(() => (voiceId ? 'chat' : 'home'))
+  const { user, isAuthenticated, setUserVoiceId } = useAuth()
+  const voiceId = user?.voiceId ?? null
+
+  const [step, setStep] = useState<AppStep>(() => pickInitialStep(isAuthenticated, voiceId))
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -70,8 +37,24 @@ export default function App() {
   const { conversations, activeId, setActiveId, saveConversation, loadConversation, deleteConversation } =
     useConversations()
 
+  const greetedFor = useRef<string | null>(null)
+
   const hasElevenLabsKey = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY || import.meta.env.ELEVENLABS_API_KEY)
   const demoMode = !(import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY)
+
+  // Sync step with auth/voice state when those external values change.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setStep('auth')
+      setMessages([])
+      return
+    }
+    if (!voiceId) {
+      setStep((current) => (current === 'auth' || current === 'home' ? 'recording' : current))
+      return
+    }
+    setStep((current) => (current === 'auth' ? 'chat' : current))
+  }, [isAuthenticated, voiceId])
 
   useEffect(() => {
     if (voiceId && messages.length > 0) {
@@ -79,15 +62,49 @@ export default function App() {
     }
   }, [messages, saveConversation, voiceId])
 
+  const speakGreeting = useCallback(async () => {
+    if (!voiceId || !user) return
+    if (greetedFor.current === voiceId) return
+    greetedFor.current = voiceId
+    try {
+      setIsProcessing(true)
+      const greetingWithTags = await getGreetingResponse(user.name)
+      const audioBlob = await textToSpeech(greetingWithTags, voiceId, 'hopeful')
+      const greeting: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: stripAudioTags(greetingWithTags),
+        timestamp: Date.now(),
+        audioUrl: URL.createObjectURL(audioBlob),
+      }
+      setMessages((prev) => (prev.length === 0 ? [greeting] : prev))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate greeting.')
+    } finally {
+      setIsProcessing(false)
+    }
+  }, [user, voiceId])
+
+  // Greet the user once they reach the chat with a cloned voice and no active conversation.
+  useEffect(() => {
+    if (step !== 'chat') return
+    if (!voiceId) return
+    if (activeId) return
+    if (messages.length > 0) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void speakGreeting()
+  }, [activeId, messages.length, speakGreeting, step, voiceId])
+
   const resetApp = useCallback(() => {
     messages.forEach((message) => {
       if (message.audioUrl?.startsWith('blob:')) URL.revokeObjectURL(message.audioUrl)
     })
     setMessages([])
-    setStep('home')
     setError(null)
     setActiveId(null)
-  }, [messages, setActiveId])
+    greetedFor.current = null
+    setStep(isAuthenticated ? (voiceId ? 'chat' : 'recording') : 'auth')
+  }, [isAuthenticated, messages, setActiveId, voiceId])
 
   const handleSendMessage = useCallback(
     async (text: string) => {
@@ -135,10 +152,24 @@ export default function App() {
       ? 'Missing ElevenLabs API key in .env. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY.'
       : null)
 
+  const navigate = useCallback(
+    (next: AppStep) => {
+      if (next === 'chat' && !voiceId) {
+        setStep('recording')
+        return
+      }
+      if (next === 'recording') {
+        greetedFor.current = null
+      }
+      setStep(next)
+    },
+    [voiceId],
+  )
+
   return (
     <div className="orb-bg tech-grid relative min-h-screen bg-surface text-text-primary transition-colors duration-300">
       <OnboardingOverlay
-        open={showOnboarding}
+        open={showOnboarding && isAuthenticated}
         step={onboardingStep}
         onNext={() => setOnboardingStep((prev) => Math.min(prev + 1, 2))}
         onBack={() => setOnboardingStep((prev) => Math.max(prev - 1, 0))}
@@ -161,42 +192,36 @@ export default function App() {
         onSelect={(id) => {
           const conversation = loadConversation(id)
           if (!conversation) return
-          setVoiceId(conversation.voiceId)
+          setUserVoiceId(conversation.voiceId)
           setMessages(conversation.messages)
           setStep('chat')
           setActiveId(id)
           setShowHistory(false)
+          greetedFor.current = conversation.voiceId
         }}
         onNewConversation={() => {
           setActiveId(null)
           setMessages([])
           setStep('chat')
           setShowHistory(false)
+          greetedFor.current = null
         }}
       />
 
       <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6 lg:max-w-2xl">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-text-tertiary">InnerVoice</p>
-            {demoMode && <p className="text-xs text-red-400">Demo Mode</p>}
-            {step === 'chat' && <p className="text-xs text-text-tertiary">{currentConversationTitle}</p>}
-          </div>
+        <Navbar
+          step={step}
+          hasHistory={conversations.length > 0}
+          onNavigate={navigate}
+          onOpenHistory={() => setShowHistory(true)}
+        />
+
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
           <div className="flex items-center gap-2">
-            {conversations.length > 0 && (
-              <button
-                type="button"
-                aria-label="Open history"
-                onClick={() => setShowHistory(true)}
-                className="rounded-full border border-border bg-black/40 px-3 py-2 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
-              >
-                History
-              </button>
-            )}
-            {step !== 'home' && <StepIndicator step={step} />}
-            <ThemeToggle />
+            {demoMode && <span className="rounded-full border border-red-700/60 bg-red-950/40 px-2 py-0.5 text-red-300">Demo Mode</span>}
+            {step === 'chat' && <span>{currentConversationTitle}</span>}
           </div>
-        </header>
+        </div>
 
         {visibleError && (
           <div className="mb-4 rounded-xl border border-red-700/60 bg-red-950/50 p-3 text-sm text-red-100">
@@ -215,12 +240,16 @@ export default function App() {
         )}
 
         <motion.section
+          key={step}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
+          transition={{ duration: 0.3 }}
           className="glass-panel glow-red rounded-2xl border border-border p-4 shadow-sm"
         >
-          {step === 'home' && <HomeScreen onBegin={() => setStep('recording')} />}
+          {step === 'auth' && <AuthScreen />}
+          {step === 'home' && (
+            <div className="flex min-h-[300px] items-center justify-center text-text-secondary">Loading…</div>
+          )}
           {step === 'recording' && (
             <RecordingView
               onUseRecording={async (blob) => {
@@ -231,7 +260,8 @@ export default function App() {
                 setStep('cloning')
                 try {
                   const newVoiceId = await cloneVoice(blob)
-                  setVoiceId(newVoiceId)
+                  setUserVoiceId(newVoiceId)
+                  greetedFor.current = null
                   setStep('chat')
                 } catch (err) {
                   setStep('recording')
@@ -254,9 +284,10 @@ export default function App() {
                 type="button"
                 className="rounded-full border border-border bg-black/40 px-3 py-1 transition hover:border-red-500/60 hover:text-white"
                 onClick={() => {
-                  setVoiceId(null)
+                  setUserVoiceId(null)
                   setStep('recording')
                   setMessages([])
+                  greetedFor.current = null
                 }}
               >
                 Re-record

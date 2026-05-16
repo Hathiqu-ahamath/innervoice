@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Mic, Radio, Square } from 'lucide-react'
+import { BookOpen, Mic, Radio, Square } from 'lucide-react'
 
 interface Props {
   onUseRecording: (blob: Blob) => void
 }
+
+const MIN_DURATION_MS = 30_000
+
+const TRAINING_PASSAGE = `Take a slow breath in, and a slower one out. The voice you are about to hear belongs to a future version of you — someone who has lived through what you are facing right now and made it to the other side.
+
+This is a quiet promise from them: you are not alone. You are not behind. The hardest seasons of your life are also the most formative, even when you cannot see it yet.
+
+Speak naturally, the way you would talk to a friend at the end of a long day. Read these words steadily, with warmth, without rushing. The richer your tone, the more your future self will sound like you when they finally speak back.
+
+When you finish, take another breath, and remember: clarity is on its way. Small steps still count. You are allowed to be soft about the things that hurt.`
 
 function formatDuration(ms: number) {
   const total = Math.floor(ms / 1000)
@@ -18,6 +28,8 @@ export function RecordingView({ onUseRecording }: Props) {
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [tooShortHint, setTooShortHint] = useState(false)
+  const [previewDuration, setPreviewDuration] = useState(0)
 
   const mediaRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -35,13 +47,18 @@ export function RecordingView({ onUseRecording }: Props) {
   )
 
   const recordingStateLabel = useMemo(() => {
-    if (audioUrl) return 'Done'
+    if (audioUrl) return 'Preview'
     if (isRecording) return 'Recording'
-    return 'Ready'
+    return 'Start'
   }, [audioUrl, isRecording])
+
+  const progress = Math.min(100, (elapsedMs / MIN_DURATION_MS) * 100)
+  const hasReachedMin = elapsedMs >= MIN_DURATION_MS
+  const previewMeetsMin = previewDuration >= MIN_DURATION_MS
 
   const startRecording = async () => {
     try {
+      setTooShortHint(false)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
       const recorder = new MediaRecorder(stream)
@@ -65,6 +82,7 @@ export function RecordingView({ onUseRecording }: Props) {
   }
 
   const stopRecording = () => {
+    setPreviewDuration(Date.now() - startedAtRef.current)
     mediaRef.current?.stop()
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
@@ -76,10 +94,16 @@ export function RecordingView({ onUseRecording }: Props) {
     if (audioUrl) URL.revokeObjectURL(audioUrl)
     setAudioUrl(null)
     setElapsedMs(0)
+    setPreviewDuration(0)
+    setTooShortHint(false)
   }
 
   const useRecording = async () => {
     if (!audioUrl) return
+    if (!previewMeetsMin) {
+      setTooShortHint(true)
+      return
+    }
     const blob = await fetch(audioUrl).then((res) => res.blob())
     onUseRecording(blob)
   }
@@ -89,34 +113,77 @@ export function RecordingView({ onUseRecording }: Props) {
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="flex min-h-[280px] flex-col items-center justify-center gap-5"
+      className="flex flex-col gap-5"
     >
-      <button
-        type="button"
-        aria-label="Start or stop recording"
-        onClick={isRecording ? stopRecording : startRecording}
-        className={`h-28 w-28 rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_rgba(239,68,68,0.2)] transition active:scale-95 ${
-          audioUrl
-            ? 'border-white/20 bg-white/20'
-            : isRecording
-              ? 'border-red-400 bg-red-600'
-              : 'border-red-400/60 bg-black/60'
-        }`}
-      >
-        <span className="flex flex-col items-center gap-1">
-          {isRecording ? <Square size={16} /> : audioUrl ? <Radio size={16} /> : <Mic size={16} />}
-          {recordingStateLabel}
-        </span>
-      </button>
+      <div className="text-center">
+        <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
+          <BookOpen size={18} className="text-red-400" />
+          Voice Training
+        </h2>
+        <p className="mt-1 text-xs text-text-secondary">
+          Read the passage below clearly for at least <span className="font-semibold text-white">30 seconds</span>.
+        </p>
+      </div>
 
-      <p className="font-mono text-lg text-text-secondary">{formatDuration(elapsedMs)}</p>
+      <div className="glass-panel max-h-[230px] overflow-y-auto rounded-2xl border border-border p-4 text-sm leading-relaxed text-text-secondary">
+        {TRAINING_PASSAGE.split('\n\n').map((paragraph, idx) => (
+          <p key={idx} className={idx === 0 ? '' : 'mt-3'}>
+            {paragraph}
+          </p>
+        ))}
+      </div>
 
-      {permissionDenied && <p className="text-sm text-red-500">Microphone access is blocked. Enable it in browser settings.</p>}
+      <div className="flex flex-col items-center gap-3">
+        <button
+          type="button"
+          aria-label="Start or stop recording"
+          onClick={isRecording ? stopRecording : audioUrl ? rerecord : startRecording}
+          className={`relative flex h-24 w-24 items-center justify-center rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_rgba(239,68,68,0.25)] transition active:scale-95 ${
+            audioUrl
+              ? 'border-white/20 bg-white/15'
+              : isRecording
+                ? 'border-red-400 bg-red-600'
+                : 'border-red-400/60 bg-black/60'
+          }`}
+        >
+          <span className="flex flex-col items-center gap-1">
+            {isRecording ? <Square size={18} /> : audioUrl ? <Radio size={18} /> : <Mic size={18} />}
+            <span className="text-xs">{recordingStateLabel}</span>
+          </span>
+          {isRecording && (
+            <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-red-400/60" />
+          )}
+        </button>
+
+        <p className="font-mono text-lg text-text-primary">
+          {formatDuration(audioUrl ? previewDuration : elapsedMs)}
+          <span className="text-xs text-text-tertiary"> / 00:30 min</span>
+        </p>
+
+        <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-zinc-800">
+          <div
+            className={`h-full rounded-full transition-all duration-200 ${hasReachedMin || previewMeetsMin ? 'bg-emerald-500' : 'bg-red-500'}`}
+            style={{ width: `${audioUrl ? Math.min(100, (previewDuration / MIN_DURATION_MS) * 100) : progress}%` }}
+          />
+        </div>
+        {isRecording && !hasReachedMin && (
+          <p className="text-xs text-text-tertiary">Keep reading… {Math.max(0, Math.ceil((MIN_DURATION_MS - elapsedMs) / 1000))}s remaining</p>
+        )}
+      </div>
+
+      {permissionDenied && (
+        <p className="text-center text-sm text-red-500">Microphone access is blocked. Enable it in browser settings.</p>
+      )}
 
       {audioUrl && (
-        <div className="glass-panel flex w-full max-w-sm flex-col gap-3 rounded-2xl border border-border p-3">
-          <audio controls src={audioUrl} />
-          <div className="flex gap-3">
+        <div className="glass-panel flex w-full flex-col gap-3 rounded-2xl border border-border p-3">
+          <audio controls src={audioUrl} className="w-full" />
+          {tooShortHint && !previewMeetsMin && (
+            <p className="rounded-lg border border-red-700/60 bg-red-950/50 px-3 py-2 text-xs text-red-200">
+              Please record at least 30 seconds for a good voice clone.
+            </p>
+          )}
+          <div className="flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
               onClick={rerecord}
@@ -127,7 +194,8 @@ export function RecordingView({ onUseRecording }: Props) {
             <button
               type="button"
               onClick={useRecording}
-              className="flex-1 rounded-full bg-red-600 px-6 py-3 font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.35)] transition hover:scale-[1.02]"
+              disabled={!previewMeetsMin}
+              className="flex-1 rounded-full bg-red-600 px-6 py-3 font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.35)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Use This Voice
             </button>

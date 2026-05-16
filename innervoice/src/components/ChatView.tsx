@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Mic, Send, Waves } from 'lucide-react'
+import { Pause, Play, Send, Waves } from 'lucide-react'
 import type { Message } from '../types'
 import { FollowUpSuggestions } from './FollowUpSuggestions'
 import { VoiceInput } from './VoiceInput'
@@ -55,25 +55,25 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
   }
 
   return (
-    <div className="flex h-[60vh] min-h-[300px] max-h-[600px] flex-col gap-4">
+    <div className="flex h-[64vh] min-h-[360px] max-h-[640px] flex-col gap-4">
       <header>
         <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
           <Waves size={18} className="text-red-400" />
           Your Future Self is Here
         </h2>
-        <p className="text-sm text-text-secondary">Voice-to-voice is active by default. You can still type anytime.</p>
+        <p className="text-sm text-text-secondary">Voice-to-voice is on by default. You can still type anytime.</p>
       </header>
 
-      <div className="glass-panel flex items-center justify-between rounded-xl border border-border p-3">
+      <div className="glass-panel flex items-center justify-between gap-3 rounded-xl border border-border p-3">
         <p className="text-xs text-text-secondary">
-          {voiceModeEnabled ? 'Voice-to-voice mode is ON' : 'Voice mode is OFF (type or tap mic)'}
+          {voiceModeEnabled ? 'Voice mode is ON' : 'Voice mode is OFF'}
         </p>
         <button
           type="button"
           onClick={() => setVoiceModeEnabled((prev) => !prev)}
-          className="rounded-full border border-border bg-black/40 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
+          className="whitespace-nowrap rounded-full border border-border bg-black/40 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
         >
-          {voiceModeEnabled ? 'Disable Voice Mode' : 'Enable Voice Mode'}
+          {voiceModeEnabled ? 'Disable' : 'Enable'}
         </button>
       </div>
 
@@ -83,7 +83,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
         aria-live="polite"
         className="glass-panel flex-1 space-y-3 overflow-y-auto rounded-2xl border border-border p-3"
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && !isProcessing && (
           <div className="rounded-xl border border-dashed border-border p-4 text-sm text-text-secondary">
             Your voice has been cloned. Ask your future self a question to begin.
           </div>
@@ -120,7 +120,10 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
         </AnimatePresence>
         {isProcessing && (
           <div className="animate-fade-in rounded-xl border border-red-500/25 bg-black/60 p-3 text-sm text-text-secondary">
-            Thinking...
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              Your future self is composing a reply…
+            </span>
           </div>
         )}
       </div>
@@ -128,24 +131,23 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
       <FollowUpSuggestions onSelect={onSend} />
 
       <div className="flex items-end gap-2">
-        <div className="rounded-full border border-red-500/40 bg-black/60 p-2">
-          <VoiceInput
-            disabled={isProcessing || assistantSpeaking}
-            keepListening={voiceModeEnabled}
-            onTranscript={(text) => {
-              if (!text.trim()) return
-              if (voiceModeEnabled && !isProcessing && !assistantSpeaking) {
-                onSend(text)
-                return
-              }
-              setInput((prev) => `${prev} ${text}`.trim())
-            }}
-          />
-        </div>
+        <VoiceInput
+          disabled={isProcessing || assistantSpeaking}
+          keepListening={voiceModeEnabled}
+          onTranscript={(text) => {
+            if (!text.trim()) return
+            if (voiceModeEnabled && !isProcessing && !assistantSpeaking) {
+              onSend(text)
+              return
+            }
+            setInput((prev) => `${prev} ${text}`.trim())
+          }}
+        />
         <div className="flex-1">
           <textarea
             value={input}
             maxLength={maxChars}
+            rows={2}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -153,8 +155,8 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
                 send()
               }
             }}
-            placeholder="Say what is on your mind..."
-            className="w-full rounded-xl border border-border bg-black/45 p-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+            placeholder="Say what is on your mind…"
+            className="min-h-[48px] w-full resize-none rounded-xl border border-border bg-black/45 px-3 py-2 text-sm text-text-primary outline-none transition focus:border-red-500/60"
           />
           <p className="mt-1 text-right text-xs text-text-tertiary">{remaining} characters left</p>
         </div>
@@ -163,11 +165,9 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           aria-label="Send message"
           onClick={send}
           disabled={!canSend}
-          className="rounded-full bg-red-600 p-3.5 font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.4)] transition hover:scale-[1.03] disabled:opacity-50"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-[0_0_16px_rgba(239,68,68,0.4)] transition hover:scale-[1.03] disabled:opacity-50"
         >
-          <span className="inline-flex items-center gap-1">
-            <Send size={16} /> Send
-          </span>
+          <Send size={18} />
         </button>
       </div>
     </div>
@@ -218,7 +218,7 @@ function AudioBubble({
       />
       <button
         type="button"
-        aria-label="Play response audio"
+        aria-label={playing ? 'Pause response audio' : 'Play response audio'}
         onClick={() => {
           const element = audioRef.current
           if (!element) return
@@ -228,15 +228,10 @@ function AudioBubble({
             element.pause()
           }
         }}
-        className="rounded-full bg-surface px-3 py-1 text-xs text-text-secondary"
+        className="inline-flex items-center gap-1 rounded-full border border-border bg-black/60 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
       >
-        {playing ? (
-          <span className="inline-flex items-center gap-1">
-            <Mic size={12} /> Pause
-          </span>
-        ) : (
-          'Play'
-        )}
+        {playing ? <Pause size={12} /> : <Play size={12} />}
+        {playing ? 'Pause' : 'Play'}
       </button>
       <VisualBars levels={levels} />
     </div>
