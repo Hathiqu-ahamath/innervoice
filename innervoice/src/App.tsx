@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
+import { AudioLines, Sparkles } from 'lucide-react'
 import { cloneVoice, textToSpeech } from './api/elevenlabs'
 import { detectEmotion, getFutureSelfResponse } from './api/openai'
 import { ChatView } from './components/ChatView'
@@ -15,20 +17,25 @@ const ONBOARDED_KEY = 'innervoice-onboarded'
 
 function HomeScreen({ onBegin }: { onBegin: () => void }) {
   return (
-    <div className="flex min-h-[360px] flex-col items-center justify-center gap-4 text-center">
-      <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-purple-500 text-2xl text-white">
-        Mic
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="relative z-10 flex min-h-[360px] flex-col items-center justify-center gap-4 text-center"
+    >
+      <div className="glow-red flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-red-600 to-white/70 text-2xl text-black">
+        <AudioLines />
       </div>
-      <h1 className="text-5xl font-bold text-text-primary">InnerVoice</h1>
+      <h1 className="bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-5xl font-bold text-transparent">InnerVoice</h1>
       <p className="text-text-secondary">Have a real conversation with your future self.</p>
       <button
         type="button"
         onClick={onBegin}
-        className="rounded-full bg-amber-500 px-8 py-3 font-semibold text-white"
+        className="rounded-full border border-red-500/40 bg-red-600 px-8 py-3 font-semibold text-white shadow-[0_0_24px_rgba(239,68,68,0.35)] transition hover:scale-[1.02]"
       >
         Begin Your Journey
       </button>
-    </div>
+    </motion.div>
   )
 }
 
@@ -42,7 +49,7 @@ function StepIndicator({ step }: { step: AppStep }) {
           <span
             key={value}
             aria-current={step === value ? 'step' : undefined}
-            className={`h-2 rounded-full ${active ? 'bg-amber-400' : 'bg-gray-700'} ${step === value ? 'w-10' : 'w-6'}`}
+            className={`h-2 rounded-full transition-all ${active ? 'bg-red-500' : 'bg-zinc-700'} ${step === value ? 'w-10' : 'w-6'}`}
           />
         )
       })}
@@ -129,7 +136,7 @@ export default function App() {
       : null)
 
   return (
-    <div className="min-h-screen bg-surface text-text-primary transition-colors duration-300">
+    <div className="orb-bg tech-grid relative min-h-screen bg-surface text-text-primary transition-colors duration-300">
       <OnboardingOverlay
         open={showOnboarding}
         step={onboardingStep}
@@ -168,11 +175,11 @@ export default function App() {
         }}
       />
 
-      <main className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6 lg:max-w-2xl">
+      <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6 lg:max-w-2xl">
         <header className="mb-6 flex items-center justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-text-tertiary">InnerVoice</p>
-            {demoMode && <p className="text-xs text-amber-500">Demo Mode</p>}
+            {demoMode && <p className="text-xs text-red-400">Demo Mode</p>}
             {step === 'chat' && <p className="text-xs text-text-tertiary">{currentConversationTitle}</p>}
           </div>
           <div className="flex items-center gap-2">
@@ -181,7 +188,7 @@ export default function App() {
                 type="button"
                 aria-label="Open history"
                 onClick={() => setShowHistory(true)}
-                className="rounded-full border border-border px-3 py-2 text-xs text-text-secondary"
+                className="rounded-full border border-border bg-black/40 px-3 py-2 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
               >
                 History
               </button>
@@ -192,7 +199,7 @@ export default function App() {
         </header>
 
         {visibleError && (
-          <div className="mb-4 rounded-xl border border-red-800/50 bg-red-900/40 p-3 text-sm text-red-100">
+          <div className="mb-4 rounded-xl border border-red-700/60 bg-red-950/50 p-3 text-sm text-red-100">
             <div className="flex items-start justify-between gap-2">
               <p>{visibleError}</p>
               <button
@@ -207,7 +214,12 @@ export default function App() {
           </div>
         )}
 
-        <section className="rounded-2xl border border-border bg-surface-card p-4 shadow-sm">
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="glass-panel glow-red rounded-2xl border border-border p-4 shadow-sm"
+        >
           {step === 'home' && <HomeScreen onBegin={() => setStep('recording')} />}
           {step === 'recording' && (
             <RecordingView
@@ -230,15 +242,17 @@ export default function App() {
           )}
           {step === 'cloning' && <CloningView />}
           {step === 'chat' && <ChatView messages={messages} isProcessing={isProcessing} onSend={handleSendMessage} />}
-        </section>
+        </motion.section>
 
         <footer className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
-          <p>Powered by OpenAI + ElevenLabs</p>
+          <p className="inline-flex items-center gap-1">
+            <Sparkles size={12} className="text-red-400" /> Powered by OpenAI + ElevenLabs
+          </p>
           <div className="flex gap-2">
             {step === 'chat' && (
               <button
                 type="button"
-                className="rounded-full border border-border px-3 py-1"
+                className="rounded-full border border-border bg-black/40 px-3 py-1 transition hover:border-red-500/60 hover:text-white"
                 onClick={() => {
                   setVoiceId(null)
                   setStep('recording')
@@ -248,7 +262,11 @@ export default function App() {
                 Re-record
               </button>
             )}
-            <button type="button" className="rounded-full border border-border px-3 py-1" onClick={resetApp}>
+            <button
+              type="button"
+              className="rounded-full border border-border bg-black/40 px-3 py-1 transition hover:border-red-500/60 hover:text-white"
+              onClick={resetApp}
+            >
               Start over
             </button>
           </div>

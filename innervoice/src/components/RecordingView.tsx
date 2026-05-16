@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
+import { Mic, Radio, Square } from 'lucide-react'
 
 interface Props {
   onUseRecording: (blob: Blob) => void
@@ -83,16 +85,28 @@ export function RecordingView({ onUseRecording }: Props) {
   }
 
   return (
-    <div className="flex min-h-[280px] flex-col items-center justify-center gap-5">
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      className="flex min-h-[280px] flex-col items-center justify-center gap-5"
+    >
       <button
         type="button"
         aria-label="Start or stop recording"
         onClick={isRecording ? stopRecording : startRecording}
-        className={`h-28 w-28 rounded-full text-sm font-semibold text-white transition active:scale-95 ${
-          audioUrl ? 'bg-emerald-500' : isRecording ? 'bg-red-500' : 'bg-amber-500'
+        className={`h-28 w-28 rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_rgba(239,68,68,0.2)] transition active:scale-95 ${
+          audioUrl
+            ? 'border-white/20 bg-white/20'
+            : isRecording
+              ? 'border-red-400 bg-red-600'
+              : 'border-red-400/60 bg-black/60'
         }`}
       >
-        {recordingStateLabel}
+        <span className="flex flex-col items-center gap-1">
+          {isRecording ? <Square size={16} /> : audioUrl ? <Radio size={16} /> : <Mic size={16} />}
+          {recordingStateLabel}
+        </span>
       </button>
 
       <p className="font-mono text-lg text-text-secondary">{formatDuration(elapsedMs)}</p>
@@ -100,22 +114,26 @@ export function RecordingView({ onUseRecording }: Props) {
       {permissionDenied && <p className="text-sm text-red-500">Microphone access is blocked. Enable it in browser settings.</p>}
 
       {audioUrl && (
-        <div className="flex w-full max-w-sm flex-col gap-3">
+        <div className="glass-panel flex w-full max-w-sm flex-col gap-3 rounded-2xl border border-border p-3">
           <audio controls src={audioUrl} />
           <div className="flex gap-3">
-            <button type="button" onClick={rerecord} className="flex-1 rounded-full border border-border px-6 py-3">
+            <button
+              type="button"
+              onClick={rerecord}
+              className="flex-1 rounded-full border border-border bg-black/40 px-6 py-3 transition hover:border-red-500/60 hover:text-white"
+            >
               Re-record
             </button>
             <button
               type="button"
               onClick={useRecording}
-              className="flex-1 rounded-full bg-amber-500 px-6 py-3 font-semibold text-white"
+              className="flex-1 rounded-full bg-red-600 px-6 py-3 font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.35)] transition hover:scale-[1.02]"
             >
               Use This Voice
             </button>
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }

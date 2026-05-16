@@ -30,14 +30,14 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-surface-card p-6">
+      <div className="glass-panel w-full max-w-md rounded-2xl border border-border p-6">
         <h2 className="text-xl font-semibold text-text-primary">{current.title}</h2>
         <p className="mt-2 text-sm text-text-secondary">{current.text}</p>
         <div className="mt-4 flex gap-2">
           {STEPS.map((item, index) => (
             <span
               key={item.title}
-              className={`h-2 rounded-full ${index === step ? 'w-8 bg-amber-400' : 'w-2 bg-gray-500'}`}
+              className={`h-2 rounded-full ${index === step ? 'w-8 bg-red-500' : 'w-2 bg-gray-500'}`}
             />
           ))}
         </div>
@@ -50,11 +50,11 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
               Back
             </button>
             {last ? (
-              <button type="button" onClick={onFinish} className="rounded-full bg-amber-500 px-4 py-2 text-white">
+              <button type="button" onClick={onFinish} className="rounded-full bg-red-600 px-4 py-2 text-white">
                 Get Started
               </button>
             ) : (
-              <button type="button" onClick={onNext} className="rounded-full bg-amber-500 px-4 py-2 text-white">
+              <button type="button" onClick={onNext} className="rounded-full bg-red-600 px-4 py-2 text-white">
                 Next
               </button>
             )}

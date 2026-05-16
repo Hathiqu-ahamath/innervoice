@@ -29,7 +29,7 @@ export function HistoryPanel({
   return (
     <div className="fixed inset-0 z-50 flex">
       <button type="button" aria-label="Close history" className="flex-1 bg-black/50" onClick={onClose} />
-      <aside className="w-72 bg-surface-card p-4 shadow-xl">
+      <aside className="glass-panel w-72 border-l border-border p-4 shadow-xl">
         <h2 className="mb-4 text-sm font-semibold text-text-secondary">Conversations</h2>
         <div className="space-y-2">
           {conversations.length === 0 ? (
@@ -38,7 +38,7 @@ export function HistoryPanel({
             conversations.map((item) => (
               <div
                 key={item.id}
-                className={`rounded-xl border p-3 ${item.id === activeId ? 'border-amber-400' : 'border-border'}`}
+                className={`rounded-xl border p-3 ${item.id === activeId ? 'border-red-500/60' : 'border-border'}`}
               >
                 <button
                   type="button"
@@ -66,7 +66,7 @@ export function HistoryPanel({
         <button
           type="button"
           onClick={onNewConversation}
-          className="mt-4 w-full rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white"
+          className="mt-4 w-full rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.35)]"
         >
           New Conversation
         </button>

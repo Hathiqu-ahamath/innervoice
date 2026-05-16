@@ -1,4 +1,5 @@
 import { useTheme } from '../ThemeContext'
+import { MoonStar, SunMedium } from 'lucide-react'
 
 export function ThemeToggle() {
   const { theme, toggle } = useTheme()
@@ -7,9 +8,9 @@ export function ThemeToggle() {
       type="button"
       aria-label="Toggle theme"
       onClick={toggle}
-      className="rounded-full border border-border p-2 text-text-secondary transition-colors hover:bg-surface-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+      className="rounded-full border border-border bg-black/60 p-2 text-text-secondary transition-all hover:border-red-500/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
     >
-      {theme === 'dark' ? 'Sun' : 'Moon'}
+      {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
     </button>
   )
 }

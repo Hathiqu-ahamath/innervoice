@@ -4,5 +4,5 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  envPrefix: ['VITE_', 'OPENAI_', 'ELEVENLABS_', 'SUPABASE_'],
+  envPrefix: ['VITE_', 'OPENAI_', 'ELEVENLABS_'],
 })

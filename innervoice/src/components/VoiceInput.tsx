@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Mic, MicOff } from 'lucide-react'
 
 type SpeechRecognitionInstance = {
   continuous: boolean
@@ -6,8 +7,9 @@ type SpeechRecognitionInstance = {
   lang: string
   start: () => void
   stop: () => void
+  abort: () => void
   onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onerror: (() => void) | null
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
   onend: (() => void) | null
   onstart: (() => void) | null
 }
@@ -22,19 +24,36 @@ interface SpeechRecognitionEvent {
   }>
 }
 
+interface SpeechRecognitionErrorEvent {
+  error: string
+}
+
 interface Props {
   onTranscript: (text: string) => void
   disabled?: boolean
   keepListening?: boolean
 }
 
+const IGNORED_ERRORS = new Set(['no-speech', 'aborted', 'audio-capture'])
+
 export function VoiceInput({ onTranscript, disabled = false, keepListening = false }: Props) {
   const [isListening, setIsListening] = useState(false)
   const [interim, setInterim] = useState('')
   const [error, setError] = useState<string | null>(null)
+
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
   const shouldListenRef = useRef(false)
   const restartTimerRef = useRef<number | null>(null)
+  const onTranscriptRef = useRef(onTranscript)
+  const disabledRef = useRef(disabled)
+
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript
+  }, [onTranscript])
+
+  useEffect(() => {
+    disabledRef.current = disabled
+  }, [disabled])
 
   const RecognitionCtor = useMemo(() => {
     const win = window as Window & {
@@ -53,55 +72,68 @@ export function VoiceInput({ onTranscript, disabled = false, keepListening = fal
 
   const ensureRecognition = useCallback(() => {
     if (!RecognitionCtor) return null
-    if (!recognitionRef.current) {
-      const recognition = new RecognitionCtor()
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = 'en-US'
-      recognition.onstart = () => {
-        setIsListening(true)
-        setError(null)
-      }
-      recognition.onresult = (event) => {
-        let finalText = ''
-        let interimText = ''
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) {
-            finalText = `${finalText} ${transcript}`.trim()
-          } else {
-            interimText += transcript
-          }
-        }
-        if (finalText) {
-          onTranscript(finalText)
-        }
-        setInterim(interimText)
-      }
-      recognition.onerror = () => {
-        setIsListening(false)
-        setError('Mic input had an issue. Try again.')
-      }
-      recognition.onend = () => {
-        setIsListening(false)
-        setInterim('')
-        if (shouldListenRef.current && !disabled) {
-          clearRestartTimer()
-          restartTimerRef.current = window.setTimeout(() => {
-            try {
-              recognitionRef.current?.start()
-              setIsListening(true)
-              setError(null)
-            } catch {
-              setError('Mic is busy. Please speak again.')
-            }
-          }, 250)
-        }
-      }
-      recognitionRef.current = recognition
+    if (recognitionRef.current) return recognitionRef.current
+
+    const recognition = new RecognitionCtor()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+
+    recognition.onstart = () => {
+      setIsListening(true)
+      setError(null)
     }
-    return recognitionRef.current
-  }, [RecognitionCtor, disabled, onTranscript])
+
+    recognition.onresult = (event) => {
+      let finalText = ''
+      let interimText = ''
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalText = `${finalText} ${transcript}`.trim()
+        } else {
+          interimText += transcript
+        }
+      }
+      if (finalText) {
+        onTranscriptRef.current(finalText)
+      }
+      setInterim(interimText)
+    }
+
+    recognition.onerror = (event) => {
+      const code = event?.error ?? 'unknown'
+      if (IGNORED_ERRORS.has(code)) {
+        return
+      }
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        shouldListenRef.current = false
+        setError('Microphone access blocked. Allow it in browser settings.')
+        setIsListening(false)
+        return
+      }
+      // For anything else, stay silent and let onend handle restart.
+    }
+
+    recognition.onend = () => {
+      setInterim('')
+      if (!shouldListenRef.current || disabledRef.current) {
+        setIsListening(false)
+        return
+      }
+      clearRestartTimer()
+      restartTimerRef.current = window.setTimeout(() => {
+        try {
+          recognitionRef.current?.start()
+        } catch {
+          // Already running — ignore.
+        }
+      }, 250)
+    }
+
+    recognitionRef.current = recognition
+    return recognition
+  }, [RecognitionCtor])
 
   const startListening = () => {
     if (disabled) return
@@ -111,20 +143,31 @@ export function VoiceInput({ onTranscript, disabled = false, keepListening = fal
     try {
       recognition.start()
     } catch {
-      setError('Unable to start microphone. Check browser permission.')
+      // Already running.
     }
   }
 
   const stopListening = () => {
     shouldListenRef.current = false
     clearRestartTimer()
-    recognitionRef.current?.stop()
+    try {
+      recognitionRef.current?.abort()
+    } catch {
+      // ignore
+    }
+    setIsListening(false)
+    setInterim('')
   }
 
   useEffect(() => {
     if (!keepListening || disabled) {
       shouldListenRef.current = false
-      recognitionRef.current?.stop()
+      clearRestartTimer()
+      try {
+        recognitionRef.current?.abort()
+      } catch {
+        // ignore — onend will clear listening state
+      }
       return
     }
     shouldListenRef.current = true
@@ -133,15 +176,20 @@ export function VoiceInput({ onTranscript, disabled = false, keepListening = fal
     try {
       recognition.start()
     } catch {
-      // Recognition may already be running.
+      // Already running.
     }
   }, [disabled, ensureRecognition, keepListening])
 
   useEffect(
     () => () => {
-      stopListening()
+      shouldListenRef.current = false
+      clearRestartTimer()
+      try {
+        recognitionRef.current?.abort()
+      } catch {
+        // ignore
+      }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
 
@@ -150,23 +198,32 @@ export function VoiceInput({ onTranscript, disabled = false, keepListening = fal
   }
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center justify-center">
       {interim && (
-        <div className="absolute -top-12 left-1/2 -translate-x-1/2 rounded-full bg-surface-card px-3 py-1 text-xs text-text-secondary shadow">
+        <div className="pointer-events-none absolute -top-12 left-1/2 z-10 w-max max-w-[260px] -translate-x-1/2 rounded-full border border-border bg-black/90 px-3 py-1 text-xs text-text-secondary shadow">
           {interim}
         </div>
       )}
-      {error && <p className="absolute -top-10 left-1/2 -translate-x-1/2 text-xs text-red-400">{error}</p>}
+      {error && (
+        <p className="pointer-events-none absolute -top-12 left-1/2 z-10 w-max max-w-[260px] -translate-x-1/2 whitespace-nowrap rounded-full bg-red-950/90 px-3 py-1 text-xs text-red-300">
+          {error}
+        </p>
+      )}
       <button
         type="button"
-        aria-label="Use voice input"
+        aria-label={isListening ? 'Stop listening' : 'Start voice input'}
         disabled={disabled}
         onClick={isListening ? stopListening : startListening}
-        className={`rounded-full p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-          isListening ? 'bg-red-500 text-white' : 'bg-surface-card text-text-secondary'
+        className={`relative flex h-12 w-12 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+          isListening
+            ? 'border-red-400 bg-red-600 text-white shadow-[0_0_24px_rgba(239,68,68,0.45)]'
+            : 'border-border bg-black/70 text-text-secondary hover:border-red-500/60 hover:text-white'
         }`}
       >
-        {isListening ? 'Listening' : 'Mic'}
+        {isListening ? <Mic size={18} /> : <MicOff size={18} />}
+        {isListening && (
+          <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-red-400/60" />
+        )}
       </button>
     </div>
   )

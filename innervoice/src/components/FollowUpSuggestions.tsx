@@ -22,7 +22,7 @@ export function FollowUpSuggestions({ onSelect }: Props) {
   if (dismissed) return null
 
   return (
-    <div className="rounded-xl border border-border bg-surface-card p-3">
+    <div className="glass-panel rounded-xl border border-border p-3">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-xs font-medium text-text-secondary">Try asking:</p>
         <button
@@ -43,7 +43,7 @@ export function FollowUpSuggestions({ onSelect }: Props) {
               onSelect(item)
               setDismissed(true)
             }}
-            className="rounded-full border border-border px-3 py-1 text-xs text-text-secondary hover:bg-surface"
+            className="rounded-full border border-border bg-black/40 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
           >
             {item}
           </button>
