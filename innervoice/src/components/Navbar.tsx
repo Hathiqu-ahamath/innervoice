@@ -73,7 +73,6 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
   }
 
   const goLiveWithAnimation = () => {
-    if (!user?.voiceId) return
     if (liveTransitioning) return
     setLivePressed(true)
     setLiveTransitioning(true)
@@ -179,9 +178,8 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
             ref={liveButtonRef}
             type="button"
             onClick={goLiveWithAnimation}
-            disabled={!user?.voiceId}
-            whileHover={user?.voiceId ? { y: -6, scale: 1.08 } : {}}
-            whileTap={user?.voiceId ? { scale: 0.98 } : {}}
+            whileHover={{ y: -6, scale: 1.08 }}
+            whileTap={{ scale: 0.98 }}
             animate={
               livePressed
                 ? { scale: 1.2, boxShadow: '0 0 46px var(--color-accent-soft)' }
@@ -192,7 +190,7 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
               step === 'live'
                 ? 'border-accent/60 bg-accent-soft text-text-primary shadow-[0_0_18px_var(--color-accent-soft)]'
                 : 'border-border/80 bg-elevated/90 text-text-secondary hover:border-accent/60 hover:text-text-primary hover:shadow-[0_0_16px_var(--color-accent-soft)]'
-            } disabled:cursor-not-allowed disabled:opacity-50`}
+            }`}
           >
             <motion.div
               whileHover={{ rotate: 58, scale: 1.18 }}
@@ -340,7 +338,6 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
                 icon={<Radio size={14} />}
                 onClick={() => go('live')}
                 active={step === 'live'}
-                disabled={!user?.voiceId}
               />
               <div className="rounded-2xl border border-border/80 bg-elevated/80 p-2">
                 <p className="mb-1 px-2 text-[11px] uppercase tracking-wider text-text-tertiary">Options</p>
