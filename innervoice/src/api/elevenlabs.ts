@@ -113,6 +113,7 @@ export async function textToSpeech(
     stability,
     outputFormat,
     realtime: Boolean(options.realtime),
+    emotion,
   })
 
   lastTtsBackend = data.backend

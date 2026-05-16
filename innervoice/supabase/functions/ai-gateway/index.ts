@@ -96,6 +96,47 @@ async function cloneVoice(payload: { name: string; audioBase64: string; mimeType
   return { voiceId: data.voice_id as string }
 }
 
+// Map our emotion taxonomy to ElevenLabs v2 voice_settings.
+// v2 doesn't support audio tags, so we make the voice emote via stability/style.
+// Lower stability + higher style = more emotional/expressive delivery.
+function v2SettingsForEmotion(emotion: string) {
+  switch (emotion) {
+    case 'fearful':
+      return { stability: 0.22, similarity_boost: 0.82, style: 0.78, use_speaker_boost: true }
+    case 'stressed':
+      return { stability: 0.26, similarity_boost: 0.82, style: 0.72, use_speaker_boost: true }
+    case 'grieving':
+      return { stability: 0.22, similarity_boost: 0.85, style: 0.82, use_speaker_boost: true }
+    case 'hurt':
+      return { stability: 0.24, similarity_boost: 0.85, style: 0.78, use_speaker_boost: true }
+    case 'sad':
+      return { stability: 0.26, similarity_boost: 0.85, style: 0.76, use_speaker_boost: true }
+    case 'anxious':
+      return { stability: 0.28, similarity_boost: 0.82, style: 0.7, use_speaker_boost: true }
+    case 'angry':
+      return { stability: 0.3, similarity_boost: 0.8, style: 0.85, use_speaker_boost: true }
+    case 'confused':
+      return { stability: 0.34, similarity_boost: 0.8, style: 0.55, use_speaker_boost: true }
+    case 'ashamed':
+      return { stability: 0.28, similarity_boost: 0.85, style: 0.7, use_speaker_boost: true }
+    case 'guilty':
+      return { stability: 0.3, similarity_boost: 0.85, style: 0.7, use_speaker_boost: true }
+    case 'lonely':
+      return { stability: 0.26, similarity_boost: 0.85, style: 0.75, use_speaker_boost: true }
+    case 'tired':
+      return { stability: 0.4, similarity_boost: 0.82, style: 0.5, use_speaker_boost: true }
+    case 'excited':
+      return { stability: 0.3, similarity_boost: 0.78, style: 0.85, use_speaker_boost: true }
+    case 'hopeful':
+      return { stability: 0.36, similarity_boost: 0.8, style: 0.68, use_speaker_boost: true }
+    case 'grateful':
+      return { stability: 0.34, similarity_boost: 0.82, style: 0.65, use_speaker_boost: true }
+    case 'neutral':
+    default:
+      return { stability: 0.32, similarity_boost: 0.8, style: 0.55, use_speaker_boost: true }
+  }
+}
+
 async function textToSpeech(payload: {
   text: string
   plainText: string
@@ -103,6 +144,7 @@ async function textToSpeech(payload: {
   stability: number
   outputFormat: string
   realtime: boolean
+  emotion?: string
 }) {
   const key = Deno.env.get('ELEVENLABS_API_KEY')
   if (!key) throw new Error('ELEVENLABS_API_KEY is missing in Supabase secrets.')
@@ -160,6 +202,8 @@ async function textToSpeech(payload: {
     }
   }
 
+  // v2 fallback — tag-free but emotionally tuned per user emotion.
+  const v2Settings = v2SettingsForEmotion(payload.emotion ?? 'neutral')
   const speechV2 = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${payload.voiceId}?output_format=${payload.outputFormat}`,
     {
@@ -168,12 +212,7 @@ async function textToSpeech(payload: {
       body: JSON.stringify({
         text: payload.plainText,
         model_id: 'eleven_multilingual_v2',
-        voice_settings: {
-          stability: 0.45,
-          similarity_boost: 0.8,
-          style: 0.5,
-          use_speaker_boost: true,
-        },
+        voice_settings: v2Settings,
       }),
     },
   )
@@ -263,6 +302,7 @@ Deno.serve(async (request) => {
             stability: number
             outputFormat: string
             realtime: boolean
+            emotion?: string
           },
         )
         return json(200, { ok: true, data })
