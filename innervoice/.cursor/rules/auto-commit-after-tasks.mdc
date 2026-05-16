@@ -1,0 +1,40 @@
+---
+description: Automatically commit completed work with both developers credited
+alwaysApply: true
+---
+
+# Critical Auto-Commit Rule
+
+After completing any code change, feature, fix, UI update, documentation update, configuration update, or other project file edit, immediately run the project commit script before ending the task.
+
+Use this exact workflow:
+
+1. Finish the requested change.
+2. Run any relevant checks for the change when practical.
+3. Immediately commit and push with:
+
+```bat
+.\commit.bat "feat: describe what was just built"
+```
+
+Use the correct commit prefix:
+
+- `feat:` for new features
+- `fix:` for bug fixes
+- `style:` for UI or visual changes
+- `docs:` for documentation and rule updates
+- `chore:` for tooling, config, dependency, or maintenance changes
+
+Commit message rules:
+
+- Keep it short and specific.
+- Describe the completed milestone in a few words.
+- Examples:
+  - `style: add voice recording screen with countdown`
+  - `feat: connect OpenAI chat response flow`
+  - `fix: handle missing voice id`
+  - `docs: add auto commit workflow rule`
+
+Do not wait for the user to ask for the commit after code edits. Do not skip this step after a completed task. If the terminal is Command Prompt instead of PowerShell, `commit.bat "message"` is also acceptable.
+
+The commit script already stages all changed files, adds the co-author trailer for Ahamath Hathiqu, commits as the configured local Git user, and pushes to `origin main`.

@@ -1,0 +1,23 @@
+CRITICAL AUTO-COMMIT RULE
+
+After completing any code change, feature, fix, UI update, documentation update, configuration update, or other project file edit, immediately run the project commit script before ending the task.
+
+Use this workflow:
+1. Finish the requested change.
+2. Run relevant checks when practical.
+3. Immediately commit and push with:
+
+.\commit.bat "feat: describe what was just built"
+
+Use the correct commit prefix:
+- feat: for new features
+- fix: for bug fixes
+- style: for UI or visual changes
+- docs: for documentation and rule updates
+- chore: for tooling, config, dependency, or maintenance changes
+
+Keep commit messages short and specific.
+
+Do not wait for the user to ask for the commit after code edits. Do not skip this step after a completed task. If the terminal is Command Prompt instead of PowerShell, commit.bat "message" is also acceptable.
+
+The commit script stages all changed files, adds the co-author trailer for Ahamath Hathiqu, commits as the configured local Git user, and pushes to origin main.

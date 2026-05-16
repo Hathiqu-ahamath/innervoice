@@ -1,9 +1,11 @@
-const ELEVENLABS_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY as string | undefined
+const ELEVENLABS_KEY =
+  (import.meta.env.VITE_ELEVENLABS_API_KEY as string | undefined) ||
+  (import.meta.env.ELEVENLABS_API_KEY as string | undefined)
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1'
 
 function requireKey() {
   if (!ELEVENLABS_KEY) {
-    throw new Error('ElevenLabs API key missing. Add VITE_ELEVENLABS_API_KEY to .env.')
+    throw new Error('ElevenLabs API key missing. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY to .env.')
   }
 }
 

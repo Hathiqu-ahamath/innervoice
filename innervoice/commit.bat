@@ -1,12 +1,24 @@
 @echo off
-:: 1. Capture the commit message
-set COMMIT_MSG=%~1
+setlocal
 
-:: 2. Stage all changed files
+cd /d "%~dp0"
+
+set "COMMIT_MSG=%~1"
+if "%COMMIT_MSG%"=="" (
+  echo Usage: commit.bat "feat: short commit message"
+  exit /b 1
+)
+
 git add .
+if errorlevel 1 exit /b %ERRORLEVEL%
 
-:: 3. Commit with the message AND the Co-authored-by tag
+git diff --cached --quiet
+if %ERRORLEVEL%==0 (
+  echo No changes staged. Skipping commit.
+  exit /b 0
+)
+
 git commit -m "%COMMIT_MSG%" -m "Co-authored-by: Ahamath Hathiqu <ahamathhathiqu@gmail.com>"
+if errorlevel 1 exit /b %ERRORLEVEL%
 
-:: 4. Push to GitHub
 git push origin main

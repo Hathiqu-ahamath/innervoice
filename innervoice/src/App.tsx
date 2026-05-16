@@ -63,8 +63,8 @@ export default function App() {
   const { conversations, activeId, setActiveId, saveConversation, loadConversation, deleteConversation } =
     useConversations()
 
-  const hasElevenLabsKey = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY)
-  const demoMode = !import.meta.env.VITE_OPENAI_API_KEY
+  const hasElevenLabsKey = Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY || import.meta.env.ELEVENLABS_API_KEY)
+  const demoMode = !(import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY)
 
   useEffect(() => {
     if (voiceId && messages.length > 0) {
@@ -121,7 +121,11 @@ export default function App() {
     return activeConversation?.title ?? 'New Conversation'
   }, [activeId, conversations])
 
-  const visibleError = error ?? (!hasElevenLabsKey ? 'Missing VITE_ELEVENLABS_API_KEY in .env. Add it to continue.' : null)
+  const visibleError =
+    error ??
+    (!hasElevenLabsKey
+      ? 'Missing ElevenLabs API key in .env. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY.'
+      : null)
 
   return (
     <div className="min-h-screen bg-surface text-text-primary transition-colors duration-300">
@@ -208,7 +212,7 @@ export default function App() {
             <RecordingView
               onUseRecording={async (blob) => {
                 if (!hasElevenLabsKey) {
-                  setError('Missing ElevenLabs key. Add VITE_ELEVENLABS_API_KEY to .env.')
+                  setError('Missing ElevenLabs key. Add VITE_ELEVENLABS_API_KEY or ELEVENLABS_API_KEY to .env.')
                   return
                 }
                 setStep('cloning')

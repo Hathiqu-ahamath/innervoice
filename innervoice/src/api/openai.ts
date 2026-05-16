@@ -1,7 +1,9 @@
 import type { Emotion, Message } from '../types'
 
 const OPENAI_BASE_URL = 'https://api.openai.com/v1/chat/completions'
-const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY as string | undefined
+const OPENAI_KEY =
+  (import.meta.env.VITE_OPENAI_API_KEY as string | undefined) ||
+  (import.meta.env.OPENAI_API_KEY as string | undefined)
 
 const MOCK_RESPONSES = [
   'I know this feels heavy right now. Start with one tiny action today and trust that it compounds.',
@@ -52,7 +54,7 @@ export async function getFutureSelfResponse(messages: Message[]): Promise<string
   })
 
   if (!response.ok) {
-    throw new Error('OpenAI request failed. Check your VITE_OPENAI_API_KEY.')
+    throw new Error('OpenAI request failed. Check VITE_OPENAI_API_KEY or OPENAI_API_KEY.')
   }
 
   const data = (await response.json()) as {
