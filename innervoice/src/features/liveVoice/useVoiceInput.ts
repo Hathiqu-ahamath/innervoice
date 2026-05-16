@@ -2,10 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { transcribeAudio } from '../../api/speechToText'
 
 interface UseVoiceInputOptions {
-  onFinalTranscript: (text: string) => void
+  onFinalTranscript: (text: string) => void | Promise<void>
   onSpeechStart?: () => void
   onActivity?: () => void
   onError?: (message: string) => void
+}
+
+const SPEECH_RMS_THRESHOLD = 0.018
+const MIN_UTTERANCE_MS = 900
+const SILENCE_AFTER_SPEECH_MS = 850
+const MAX_UTTERANCE_MS = 10000
+const NO_SPEECH_RESTART_MS = 6000
+
+function nowMs() {
+  return Date.now()
 }
 
 export function useVoiceInput({
@@ -22,6 +32,7 @@ export function useVoiceInput({
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunkStopTimerRef = useRef<number | null>(null)
   const runningRef = useRef(false)
+  const inputLevelRef = useRef(0)
   const meterContextRef = useRef<AudioContext | null>(null)
   const meterAnalyserRef = useRef<AnalyserNode | null>(null)
   const meterRafRef = useRef<number | null>(null)
@@ -96,8 +107,9 @@ export function useVoiceInput({
             sum += n * n
           }
           const rms = Math.sqrt(sum / data.length)
+          inputLevelRef.current = rms
           setInputLevel(Math.min(1, rms * 5))
-          if (rms > 0.02) {
+          if (rms > SPEECH_RMS_THRESHOLD) {
             onActivity?.()
           }
           meterRafRef.current = requestAnimationFrame(tick)
@@ -112,6 +124,9 @@ export function useVoiceInput({
         const recorder = new MediaRecorder(streamRef.current)
         recorderRef.current = recorder
         const chunks: BlobPart[] = []
+        const startedAt = nowMs()
+        let speechDetected = false
+        let lastSpeechAt = startedAt
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) chunks.push(event.data)
         }
@@ -122,15 +137,14 @@ export function useVoiceInput({
           }
           if (!runningRef.current) return
           const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
-          if (blob.size > 1000) {
+          if (speechDetected && blob.size > 1800) {
             try {
               const text = await transcribeAudio(blob)
               const trimmed = text.trim()
               if (trimmed) {
-                onSpeechStart?.()
                 onActivity?.()
                 setTranscript(trimmed)
-                onFinalTranscript(trimmed)
+                await onFinalTranscript(trimmed)
                 setTranscript('')
               }
             } catch (err) {
@@ -140,12 +154,40 @@ export function useVoiceInput({
               }
             }
           }
-          if (runningRef.current) runCycle()
+          if (runningRef.current) window.setTimeout(runCycle, 120)
         }
         recorder.start(250)
+
+        const watchForSilence = () => {
+          if (!runningRef.current || recorder.state === 'inactive') return
+          const rms = inputLevelRef.current
+          const elapsed = nowMs() - startedAt
+
+          if (rms > SPEECH_RMS_THRESHOLD) {
+            if (!speechDetected) {
+              speechDetected = true
+              onSpeechStart?.()
+            }
+            lastSpeechAt = nowMs()
+            onActivity?.()
+          }
+
+          const shouldStopForSpeech =
+            speechDetected && elapsed >= MIN_UTTERANCE_MS && nowMs() - lastSpeechAt >= SILENCE_AFTER_SPEECH_MS
+          const shouldStopForMaxLength = elapsed >= MAX_UTTERANCE_MS
+
+          if (shouldStopForSpeech || shouldStopForMaxLength) {
+            recorder.stop()
+            return
+          }
+
+          chunkStopTimerRef.current = window.setTimeout(watchForSilence, 120)
+        }
+
         chunkStopTimerRef.current = window.setTimeout(() => {
-          if (recorder.state !== 'inactive') recorder.stop()
-        }, 7000)
+          if (!speechDetected && recorder.state !== 'inactive') recorder.stop()
+        }, NO_SPEECH_RESTART_MS)
+        window.setTimeout(watchForSilence, 120)
       }
 
       runCycle()

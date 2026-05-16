@@ -7,6 +7,20 @@ import { useVoiceInput } from './useVoiceInput'
 import { useVoiceOutput } from './useVoiceOutput'
 
 const SILENCE_AUTO_CLOSE_MS = 18000
+const FILLER_DELAY_MS = 550
+
+const THINKING_FILLERS = [
+  { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
+  { display: 'Okay, I hear you.', spoken: '[softly] Okay, [short pause] I hear you.' },
+  { display: 'Yeah, give me a moment.', spoken: '[gentle exhale] Yeah, [short pause] give me a moment.' },
+  { display: 'Hmm, thinking...', spoken: '[thoughtful] Hmm, [short pause] thinking.' },
+  { display: 'Right, with you.', spoken: '[warm] Right, [short pause] with you.' },
+  { display: 'Mhm, just a sec.', spoken: '[softly] Mhm, [short pause] just a sec.' },
+]
+
+function pickFiller() {
+  return THINKING_FILLERS[Math.floor(Math.random() * THINKING_FILLERS.length)]
+}
 
 function currentTimestamp() {
   return Date.now()
@@ -78,6 +92,7 @@ export function LiveVoiceController() {
   const [lastUserCaption, setLastUserCaption] = useState('')
   const [statusDetail, setStatusDetail] = useState('Tap the mic to start live mode.')
   const liveModeRef = useRef(false)
+  const sessionActiveRef = useRef(false)
   const lastActivityAtRef = useRef(0)
   const sessionIdRef = useRef(0)
   const lastHandledTranscriptRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
@@ -90,14 +105,14 @@ export function LiveVoiceController() {
       // Interrupt support: if user starts talking, cut AI voice immediately.
       if (isSpeaking) stopSpeaking()
       lastActivityAtRef.current = currentTimestamp()
-      setStatusDetail('Listening...')
+      setStatusDetail("I'm listening...")
     },
     onActivity: () => {
       lastActivityAtRef.current = currentTimestamp()
     },
     onError: (message) => setStatusDetail(message),
     onFinalTranscript: async (finalText) => {
-      if (!liveModeRef.current || !isSessionActive) return
+      if (!liveModeRef.current || !sessionActiveRef.current) return
       const sessionId = sessionIdRef.current
       const normalized = finalText.trim().toLowerCase()
       const now = currentTimestamp()
@@ -106,7 +121,7 @@ export function LiveVoiceController() {
         normalized === lastHandledTranscriptRef.current.text &&
         now - lastHandledTranscriptRef.current.at < 3200
       ) {
-        setStatusDetail('Listening...')
+        setStatusDetail("I'm listening...")
         setTimeout(() => {
           if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
           startListening()
@@ -115,19 +130,45 @@ export function LiveVoiceController() {
       }
       lastHandledTranscriptRef.current = { text: normalized, at: now }
       lastActivityAtRef.current = currentTimestamp()
-      setStatusDetail('Processing...')
+      setStatusDetail('Thinking...')
       setLastUserCaption(finalText)
       stopListening()
-      const turn = await processUserTurn(finalText)
+
+      // Start the LLM call right away so we can race a filler against it.
+      const turnPromise = processUserTurn(finalText)
+
+      // If the response is slow, slip in a short human-like filler so it
+      // doesn't feel like dead air on the other end of the line.
+      const filler = pickFiller()
+      let fillerPromise: Promise<void> | null = null
+      const fillerTimer = window.setTimeout(() => {
+        if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
+        setStatusDetail(filler.display)
+        setLatestReply(filler.display)
+        fillerPromise = speak({
+          text: filler.spoken,
+          emotion: 'neutral',
+          voiceId,
+          realtime: true,
+        })
+      }, FILLER_DELAY_MS)
+
+      const turn = await turnPromise
+      window.clearTimeout(fillerTimer)
+      if (fillerPromise) {
+        // let the filler finish so we don't cut ourselves off mid-word
+        try { await fillerPromise } catch { /* ignore */ }
+      }
       if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
       if (!turn) {
         if (liveModeRef.current) {
-          setStatusDetail('Listening...')
+          setStatusDetail("I'm listening...")
           startListening()
         }
         return
       }
       setLatestReply(turn.displayText)
+      setStatusDetail('Speaking...')
       await speak({
         text: turn.spokenText,
         emotion: turn.emotion,
@@ -135,7 +176,7 @@ export function LiveVoiceController() {
         realtime: false,
       })
       if (liveModeRef.current && sessionIdRef.current === sessionId) {
-        setStatusDetail('Listening...')
+        setStatusDetail("I'm listening...")
         lastActivityAtRef.current = currentTimestamp()
         setTimeout(() => {
           if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
@@ -150,6 +191,10 @@ export function LiveVoiceController() {
   }, [isLiveMode])
 
   useEffect(() => {
+    sessionActiveRef.current = isSessionActive
+  }, [isSessionActive])
+
+  useEffect(() => {
     if (!isLiveMode) return
     const timer = window.setInterval(() => {
       if (!liveModeRef.current) return
@@ -161,6 +206,7 @@ export function LiveVoiceController() {
         setTimeout(() => {
           if (!liveModeRef.current) return
           sessionIdRef.current += 1
+          sessionActiveRef.current = false
           stopListening()
           stopSpeaking()
           setIsSessionActive(false)
@@ -174,29 +220,25 @@ export function LiveVoiceController() {
   }, [isLiveMode, isSessionActive, isSpeaking, state.isProcessing, stopListening, stopSpeaking])
 
   const startSession = useCallback(() => {
+    if (sessionActiveRef.current) return
+    sessionActiveRef.current = true
     setIsSessionActive(true)
     sessionIdRef.current += 1
     lastActivityAtRef.current = currentTimestamp()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
-    setStatusDetail('Starting...')
-    const openerDisplay = "What's up? I'm listening."
-    const openerSpoken = "[curious] What's up? [short pause] I'm listening."
+    setStatusDetail('Opening microphone...')
+    const openerDisplay = "I'm here. Start talking when you're ready."
     setLatestReply(openerDisplay)
     const sessionId = sessionIdRef.current
-    void speak({
-      text: openerSpoken,
-      emotion: 'hopeful',
-      voiceId,
-      realtime: false,
-    }).finally(() => {
+    void startListening().then(() => {
       if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail('Listening...')
-      startListening()
+      setStatusDetail("I'm listening...")
     })
-  }, [speak, startListening, voiceId])
+  }, [startListening])
 
   const endSession = useCallback(() => {
     sessionIdRef.current += 1
+    sessionActiveRef.current = false
     setIsSessionActive(false)
     stopListening()
     stopSpeaking()
@@ -208,6 +250,7 @@ export function LiveVoiceController() {
   const closePopup = useCallback(() => {
     liveModeRef.current = false
     sessionIdRef.current += 1
+    sessionActiveRef.current = false
     setIsSessionActive(false)
     setIsLiveMode(false)
     stopListening()
@@ -230,10 +273,10 @@ export function LiveVoiceController() {
       setStatusDetail('Session ended. Tap Start Session.')
       return
     }
-    if (state.isProcessing) setStatusDetail('Processing...')
+    if (state.isProcessing) setStatusDetail('Thinking...')
     else if (isSpeaking) setStatusDetail('Speaking...')
-    else if (isListening) setStatusDetail('Listening...')
-    else setStatusDetail('Ready')
+    else if (isListening) setStatusDetail("I'm listening...")
+    else setStatusDetail('Here whenever you are.')
   }, [isLiveMode, isListening, isSessionActive, isSpeaking, state.isProcessing])
 
   const combinedLevel = useMemo(() => Math.max(inputLevel * 0.9, outputLevel), [inputLevel, outputLevel])
