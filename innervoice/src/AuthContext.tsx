@@ -84,7 +84,11 @@ function mapProfileToPublic(profile: ProfileRow, fallbackEmail = ''): PublicUser
   }
 }
 
-async function getOrCreateProfile(userId: string, email: string, defaults?: { name?: string; bio?: string }) {
+async function getOrCreateProfile(
+  userId: string,
+  email: string,
+  defaults?: { name?: string; bio?: string; voiceId?: string | null },
+) {
   if (!supabase) throw new Error('Supabase is not configured.')
   const { data: existing, error: fetchError } = await supabase
     .from('profiles')
@@ -103,7 +107,7 @@ async function getOrCreateProfile(userId: string, email: string, defaults?: { na
       avatar_url: null as string | null,
       theme_from_avatar: false,
       avatar_theme: null as AvatarThemePalette | null,
-      voice_id: null as string | null,
+      voice_id: defaults?.voiceId ?? null,
       created_at: new Date().toISOString(),
     }
     const { error: insertError } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' })
@@ -111,7 +115,18 @@ async function getOrCreateProfile(userId: string, email: string, defaults?: { na
     return mapProfileToPublic(payload, email)
   }
 
-  return mapProfileToPublic(existing as ProfileRow, email)
+  const existingProfile = existing as ProfileRow
+  if (!existingProfile.voice_id && defaults?.voiceId) {
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ voice_id: defaults.voiceId })
+      .eq('id', userId)
+    if (!updateError) {
+      return mapProfileToPublic({ ...existingProfile, voice_id: defaults.voiceId }, email)
+    }
+  }
+
+  return mapProfileToPublic(existingProfile, email)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -130,7 +145,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const profile = await getOrCreateProfile(authUser.id, authUser.email ?? '')
+        const sessionSnapshot = readSession()
+        const profile = await getOrCreateProfile(authUser.id, authUser.email ?? '', {
+          name: sessionSnapshot?.name,
+          bio: sessionSnapshot?.bio,
+          voiceId: sessionSnapshot?.voiceId ?? null,
+        })
         writeSession(profile)
         if (!cancelled) setUser(profile)
       } catch (error) {
