@@ -38,7 +38,7 @@ export function HistoryPanel({
             conversations.map((item) => (
               <div
                 key={item.id}
-                className={`rounded-xl border p-3 ${item.id === activeId ? 'border-red-500/60' : 'border-border'}`}
+                className={`rounded-xl border p-3 ${item.id === activeId ? 'border-accent/60' : 'border-border'}`}
               >
                 <button
                   type="button"
@@ -55,7 +55,7 @@ export function HistoryPanel({
                   type="button"
                   aria-label="Delete conversation"
                   onClick={() => onDelete(item.id)}
-                  className="mt-2 text-xs text-red-500"
+                  className="mt-2 text-xs text-danger"
                 >
                   Delete
                 </button>
@@ -66,7 +66,7 @@ export function HistoryPanel({
         <button
           type="button"
           onClick={onNewConversation}
-          className="mt-4 w-full rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.35)]"
+          className="mt-4 w-full rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white shadow-[0_0_16px_var(--color-accent-soft)]"
         >
           New Conversation
         </button>

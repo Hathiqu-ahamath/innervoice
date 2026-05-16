@@ -37,7 +37,7 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
           {STEPS.map((item, index) => (
             <span
               key={item.title}
-              className={`h-2 rounded-full ${index === step ? 'w-8 bg-red-500' : 'w-2 bg-gray-500'}`}
+              className={`h-2 rounded-full ${index === step ? 'w-8 bg-accent' : 'w-2 bg-border'}`}
             />
           ))}
         </div>
@@ -50,11 +50,11 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
               Back
             </button>
             {last ? (
-              <button type="button" onClick={onFinish} className="rounded-full bg-red-600 px-4 py-2 text-white">
+              <button type="button" onClick={onFinish} className="rounded-full bg-accent px-4 py-2 text-white">
                 Get Started
               </button>
             ) : (
-              <button type="button" onClick={onNext} className="rounded-full bg-red-600 px-4 py-2 text-white">
+              <button type="button" onClick={onNext} className="rounded-full bg-accent px-4 py-2 text-white">
                 Next
               </button>
             )}

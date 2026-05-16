@@ -223,20 +223,20 @@ export default function App() {
 
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
           <div className="flex items-center gap-2">
-            {demoMode && <span className="rounded-full border border-red-700/60 bg-red-950/40 px-2 py-0.5 text-red-300">Demo Mode</span>}
+            {demoMode && <span className="rounded-full border border-danger/40 bg-danger-soft px-2 py-0.5 text-danger">Demo Mode</span>}
             {step === 'chat' && <span>{currentConversationTitle}</span>}
           </div>
         </div>
 
         {visibleError && (
-          <div className="mb-4 rounded-xl border border-red-700/60 bg-red-950/50 p-3 text-sm text-red-100">
+          <div className="mb-4 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
             <div className="flex items-start justify-between gap-2">
               <p>{visibleError}</p>
               <button
                 type="button"
                 aria-label="Dismiss error"
                 onClick={() => setError(null)}
-                className="text-xs text-red-200"
+                className="text-xs text-danger"
               >
                 Dismiss
               </button>
@@ -249,7 +249,7 @@ export default function App() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="glass-panel glow-red rounded-2xl border border-border p-4 shadow-sm"
+          className="glass-panel glow-accent rounded-2xl border border-border p-4 shadow-sm"
         >
           {step === 'auth' && <AuthScreen />}
           {step === 'home' && (
@@ -281,13 +281,13 @@ export default function App() {
 
         <footer className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
           <p className="inline-flex items-center gap-1">
-            <Sparkles size={12} className="text-red-400" /> Powered by OpenAI + ElevenLabs
+            <Sparkles size={12} className="text-accent" /> Powered by OpenAI + ElevenLabs
           </p>
           <div className="flex gap-2">
             {step === 'chat' && (
               <button
                 type="button"
-                className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-red-500/60 hover:text-text-primary"
+                className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-accent/60 hover:text-text-primary"
                 onClick={() => {
                   setUserVoiceId(null)
                   setStep('recording')
@@ -300,7 +300,7 @@ export default function App() {
             )}
             <button
               type="button"
-              className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-red-500/60 hover:text-text-primary"
+              className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-accent/60 hover:text-text-primary"
               onClick={resetApp}
             >
               Start over

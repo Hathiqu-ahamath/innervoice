@@ -107,12 +107,12 @@ export function VoiceInput({ onTranscript, disabled = false }: Props) {
   return (
     <div className="relative flex shrink-0 items-center justify-center">
       {error && (
-        <p className="pointer-events-none absolute -top-14 left-1/2 z-20 w-max max-w-[280px] -translate-x-1/2 rounded-lg border border-red-700/60 bg-red-950/95 px-3 py-1.5 text-center text-xs text-red-200">
+        <p className="pointer-events-none absolute -top-14 left-1/2 z-20 w-max max-w-[280px] -translate-x-1/2 rounded-lg border border-danger/40 bg-danger-soft px-3 py-1.5 text-center text-xs text-danger">
           {error}
         </p>
       )}
       {isRecording && (
-        <p className="pointer-events-none absolute -top-10 left-1/2 z-20 -translate-x-1/2 text-xs text-red-400">
+        <p className="pointer-events-none absolute -top-10 left-1/2 z-20 -translate-x-1/2 text-xs text-accent">
           {elapsedSec}s — tap to send
         </p>
       )}
@@ -121,12 +121,12 @@ export function VoiceInput({ onTranscript, disabled = false }: Props) {
         aria-label={isRecording ? 'Stop and transcribe' : isTranscribing ? 'Transcribing' : 'Record voice message'}
         disabled={disabled || isTranscribing}
         onClick={handleClick}
-        className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
           isRecording
-            ? 'border-red-400 bg-red-600 text-white shadow-[0_0_24px_rgba(239,68,68,0.45)]'
+            ? 'border-accent bg-accent text-white shadow-[0_0_24px_var(--color-accent-soft)]'
             : isTranscribing
               ? 'border-border bg-elevated text-text-secondary'
-              : 'border-border bg-elevated text-text-secondary hover:border-red-500/60 hover:text-text-primary'
+              : 'border-border bg-elevated text-text-secondary hover:border-accent/60 hover:text-text-primary'
         }`}
       >
         {isTranscribing ? (
@@ -137,7 +137,7 @@ export function VoiceInput({ onTranscript, disabled = false }: Props) {
           <Mic size={18} />
         )}
         {isRecording && (
-          <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-red-400/60" />
+          <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-accent/60" />
         )}
       </button>
     </div>

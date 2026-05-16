@@ -6,6 +6,7 @@ interface StoredUser {
   passwordHash: string
   voiceId: string | null
   bio: string
+  avatarUrl: string | null
   createdAt: number
 }
 
@@ -14,6 +15,7 @@ export interface PublicUser {
   name: string
   voiceId: string | null
   bio: string
+  avatarUrl: string | null
   createdAt: number
 }
 
@@ -24,7 +26,7 @@ interface AuthContextValue {
   login: (input: { email: string; password: string }) => Promise<void>
   logout: () => void
   setUserVoiceId: (voiceId: string | null) => void
-  updateProfile: (input: { name: string; bio?: string }) => Promise<void>
+  updateProfile: (input: { name: string; bio?: string; avatarUrl?: string | null }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -48,6 +50,7 @@ function readUsers(): Record<string, StoredUser> {
       const u = raw[email]
       if (u.bio === undefined) u.bio = ''
       if (u.createdAt === undefined) u.createdAt = Date.now()
+      if (u.avatarUrl === undefined) u.avatarUrl = null
     }
     return raw
   } catch {
@@ -65,6 +68,7 @@ function toPublicUser(stored: StoredUser): PublicUser {
     name: stored.name,
     voiceId: stored.voiceId,
     bio: stored.bio ?? '',
+    avatarUrl: stored.avatarUrl ?? null,
     createdAt: stored.createdAt,
   }
 }
@@ -77,6 +81,7 @@ function readSession(): PublicUser | null {
     return {
       ...parsed,
       bio: parsed.bio ?? '',
+      avatarUrl: parsed.avatarUrl ?? null,
       createdAt: parsed.createdAt ?? Date.now(),
     }
   } catch {
@@ -114,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         passwordHash: hashPassword(password),
         voiceId: null,
         bio: bio?.trim() ?? '',
+        avatarUrl: null,
         createdAt: Date.now(),
       }
       users[normalizedEmail] = stored
@@ -158,24 +164,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const updateProfile = useCallback(async ({ name, bio }: { name: string; bio?: string }) => {
-    const trimmedName = name.trim()
-    if (!trimmedName) {
-      throw new Error('Name cannot be empty.')
-    }
-    const current = readSession()
-    if (!current) return
-    const users = readUsers()
-    const stored = users[current.email]
-    if (!stored) return
-    stored.name = trimmedName
-    stored.bio = bio?.trim() ?? ''
-    users[current.email] = stored
-    writeUsers(users)
-    const next: PublicUser = { ...current, name: trimmedName, bio: stored.bio }
-    writeSession(next)
-    setUser(next)
-  }, [])
+  const updateProfile = useCallback(
+    async ({ name, bio, avatarUrl }: { name: string; bio?: string; avatarUrl?: string | null }) => {
+      const trimmedName = name.trim()
+      if (!trimmedName) {
+        throw new Error('Name cannot be empty.')
+      }
+      const current = readSession()
+      if (!current) return
+      const users = readUsers()
+      const stored = users[current.email]
+      if (!stored) return
+      stored.name = trimmedName
+      if (bio !== undefined) stored.bio = bio.trim()
+      if (avatarUrl !== undefined) stored.avatarUrl = avatarUrl
+      users[current.email] = stored
+      writeUsers(users)
+      const next: PublicUser = {
+        ...current,
+        name: trimmedName,
+        bio: stored.bio,
+        avatarUrl: stored.avatarUrl ?? null,
+      }
+      writeSession(next)
+      setUser(next)
+    },
+    [],
+  )
 
   const value = useMemo<AuthContextValue>(
     () => ({

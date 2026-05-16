@@ -8,7 +8,7 @@ export function ThemeToggle() {
       type="button"
       aria-label="Toggle theme"
       onClick={toggle}
-      className="rounded-full border border-border bg-elevated p-2 text-text-secondary transition-all hover:border-red-500/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      className="rounded-full border border-border bg-elevated p-2 text-text-secondary transition-all hover:border-accent/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
     </button>

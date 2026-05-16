@@ -18,7 +18,7 @@ function VisualBars({ levels }: { levels: number[] }) {
       {levels.map((level, index) => (
         <span
           key={`${index}-${Math.round(level * 100)}`}
-          className="w-1 rounded bg-red-500"
+          className="w-1 rounded bg-accent"
           style={{ height: `${Math.max(6, level * 24)}px` }}
         />
       ))}
@@ -59,7 +59,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
     <div className="flex h-[64vh] min-h-[360px] max-h-[640px] flex-col gap-4">
       <header>
         <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
-          <Waves size={18} className="text-red-400" />
+          <Waves size={18} className="text-accent" />
           Your Future Self is Here
         </h2>
         <p className="text-sm text-text-secondary">
@@ -74,7 +74,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
         <button
           type="button"
           onClick={() => setVoiceModeEnabled((prev) => !prev)}
-          className="whitespace-nowrap rounded-full border border-border bg-elevated px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-text-primary"
+          className="whitespace-nowrap rounded-full border border-border bg-elevated px-3 py-1 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
         >
           {voiceModeEnabled ? 'Disable' : 'Enable'}
         </button>
@@ -101,7 +101,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
               transition={{ duration: 0.25 }}
               className={`rounded-2xl border p-3 ${
                 message.role === 'user'
-                  ? 'ml-auto max-w-[90%] border-red-500/30 bg-red-600/15'
+                  ? 'ml-auto max-w-[90%] border-accent/30 bg-accent-soft'
                   : 'mr-auto max-w-[90%] border-border bg-assistant-bubble'
               }`}
             >
@@ -122,9 +122,9 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           ))}
         </AnimatePresence>
         {isProcessing && (
-          <div className="animate-fade-in rounded-xl border border-red-500/25 bg-elevated p-3 text-sm text-text-secondary">
+          <div className="animate-fade-in rounded-xl border border-accent/25 bg-elevated p-3 text-sm text-text-secondary">
             <span className="inline-flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
               Your future self is composing a reply…
             </span>
           </div>
@@ -142,7 +142,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           type="button"
           aria-label="Open question suggestions"
           onClick={() => setSuggestionsOpen(true)}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-elevated text-text-secondary transition hover:border-red-500/60 hover:text-text-primary"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-elevated text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
         >
           <Lightbulb size={18} />
         </button>
@@ -170,7 +170,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
               }
             }}
             placeholder="Say what is on your mind…"
-            className="min-h-[48px] w-full resize-none rounded-xl border border-border bg-input-bg px-3 py-2 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+            className="min-h-[48px] w-full resize-none rounded-xl border border-border bg-input-bg px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent/60"
           />
           <p className="mt-1 text-right text-xs text-text-tertiary">{remaining} characters left</p>
         </div>
@@ -179,7 +179,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           aria-label="Send message"
           onClick={send}
           disabled={!canSend}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-[0_0_16px_rgba(239,68,68,0.4)] transition hover:scale-[1.03] disabled:opacity-50"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-white shadow-[0_0_16px_rgba(239,68,68,0.4)] transition hover:scale-[1.03] disabled:opacity-50"
         >
           <Send size={18} />
         </button>
@@ -242,7 +242,7 @@ function AudioBubble({
             element.pause()
           }
         }}
-        className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-text-primary"
+        className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
       >
         {playing ? <Pause size={12} /> : <Play size={12} />}
         {playing ? 'Pause' : 'Play'}

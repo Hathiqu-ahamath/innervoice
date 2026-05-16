@@ -46,13 +46,13 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="suggestions-title"
-            className="glass-panel glow-red w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl"
+            className="glass-panel glow-accent w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div>
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-600/20 text-red-400">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
                     <Lightbulb size={18} />
                   </div>
                   <div>
@@ -66,7 +66,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
                   type="button"
                   aria-label="Close suggestions"
                   onClick={onClose}
-                  className="rounded-full border border-border bg-elevated p-1.5 text-text-tertiary transition hover:border-red-500/60 hover:text-text-primary"
+                  className="rounded-full border border-border bg-elevated p-1.5 text-text-tertiary transition hover:border-accent/60 hover:text-text-primary"
                 >
                   <X size={16} />
                 </button>
@@ -81,7 +81,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
                       onSelect(item)
                       onClose()
                     }}
-                    className="rounded-xl border border-border bg-elevated px-4 py-3 text-left text-sm text-text-primary transition hover:border-red-500/50 hover:bg-red-600/10"
+                    className="rounded-xl border border-border bg-elevated px-4 py-3 text-left text-sm text-text-primary transition hover:border-accent/50 hover:bg-accent-soft"
                   >
                     {item}
                   </button>

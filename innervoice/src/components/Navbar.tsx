@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { AudioLines, Clock, LogOut, MessageCircle, Mic2, User, UserPlus } from 'lucide-react'
 import { useAuth } from '../AuthContext'
+import { ProfileAvatar } from './ProfileAvatar'
 import { ThemeToggle } from './ThemeToggle'
 import type { AppStep } from '../types'
 
@@ -32,8 +33,8 @@ function NavButton({
       disabled={disabled}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-40 ${
         active
-          ? 'border-red-500/60 bg-red-600/15 text-red-50 shadow-[0_0_14px_rgba(239,68,68,0.3)] dark:text-white'
-          : 'border-border bg-elevated text-text-secondary hover:border-red-500/60 hover:text-text-primary'
+          ? 'border-accent/50 bg-accent-soft text-text-primary shadow-[0_0_14px_var(--color-accent-soft)]'
+          : 'border-border bg-elevated text-text-secondary hover:border-accent/60 hover:text-text-primary'
       }`}
     >
       {icon}
@@ -48,9 +49,20 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
   return (
     <nav className="glass-panel mb-5 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border px-3 py-2">
       <div className="flex items-center gap-2">
-        <div className="glow-red flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-red-600 to-white/70 text-black">
-          <AudioLines size={16} />
-        </div>
+        {isAuthenticated && user ? (
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="rounded-full transition hover:scale-105"
+            aria-label="Open profile"
+          >
+            <ProfileAvatar name={user.name} avatarUrl={user.avatarUrl} size="sm" />
+          </button>
+        ) : (
+          <div className="glow-accent flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-white">
+            <AudioLines size={16} />
+          </div>
+        )}
         <div className="leading-tight">
           <p className="text-[10px] uppercase tracking-[0.25em] text-text-tertiary">InnerVoice</p>
           {isAuthenticated && user ? (

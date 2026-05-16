@@ -39,7 +39,7 @@ export function AuthScreen() {
       transition={{ duration: 0.35 }}
       className="flex min-h-[420px] flex-col items-center justify-center gap-5"
     >
-      <div className="glow-red flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-red-600 to-white/70 text-black">
+      <div className="glow-accent flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-white">
         <AudioLines />
       </div>
       <div className="text-center">
@@ -61,7 +61,7 @@ export function AuthScreen() {
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name"
             required
-            className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+            className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
           />
         )}
         {mode === 'register' && (
@@ -71,7 +71,7 @@ export function AuthScreen() {
             placeholder="About you (optional)"
             rows={2}
             maxLength={280}
-            className="resize-none rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+            className="resize-none rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
           />
         )}
         <input
@@ -80,7 +80,7 @@ export function AuthScreen() {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="Email"
           required
-          className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+          className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
         />
         <input
           type="password"
@@ -89,17 +89,17 @@ export function AuthScreen() {
           placeholder="Password (min 6 chars)"
           required
           minLength={6}
-          className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+          className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
         />
 
         {error && (
-          <p className="rounded-lg border border-red-700/60 bg-red-950/50 px-3 py-2 text-xs text-red-200">{error}</p>
+          <p className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">{error}</p>
         )}
 
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-red-600 px-6 py-3 font-semibold text-white shadow-[0_0_18px_rgba(239,68,68,0.4)] transition hover:scale-[1.02] disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 font-semibold text-white shadow-[0_0_18px_var(--color-accent-soft)] transition hover:scale-[1.02] disabled:opacity-50"
         >
           {mode === 'login' ? <LogIn size={16} /> : <UserPlus size={16} />}
           {submitting ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}

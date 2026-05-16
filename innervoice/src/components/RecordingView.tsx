@@ -117,7 +117,7 @@ export function RecordingView({ onUseRecording }: Props) {
     >
       <div className="text-center">
         <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
-          <BookOpen size={18} className="text-red-400" />
+          <BookOpen size={18} className="text-accent" />
           Voice Training
         </h2>
         <p className="mt-1 text-xs text-text-secondary">
@@ -138,12 +138,12 @@ export function RecordingView({ onUseRecording }: Props) {
           type="button"
           aria-label="Start or stop recording"
           onClick={isRecording ? stopRecording : audioUrl ? rerecord : startRecording}
-          className={`relative flex h-24 w-24 items-center justify-center rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_rgba(239,68,68,0.25)] transition active:scale-95 ${
+          className={`relative flex h-24 w-24 items-center justify-center rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_var(--color-accent-soft)] transition active:scale-95 ${
             audioUrl
               ? 'border-white/20 bg-white/15'
               : isRecording
-                ? 'border-red-400 bg-red-600'
-                : 'border-red-400/60 bg-elevated text-text-primary'
+                ? 'border-accent bg-accent'
+                : 'border-accent/60 bg-elevated text-text-primary'
           }`}
         >
           <span className="flex flex-col items-center gap-1">
@@ -151,7 +151,7 @@ export function RecordingView({ onUseRecording }: Props) {
             <span className="text-xs">{recordingStateLabel}</span>
           </span>
           {isRecording && (
-            <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-red-400/60" />
+            <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-accent/60" />
           )}
         </button>
 
@@ -162,7 +162,7 @@ export function RecordingView({ onUseRecording }: Props) {
 
         <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-border">
           <div
-            className={`h-full rounded-full transition-all duration-200 ${hasReachedMin || previewMeetsMin ? 'bg-emerald-500' : 'bg-red-500'}`}
+            className={`h-full rounded-full transition-all duration-200 ${hasReachedMin || previewMeetsMin ? 'bg-accent-hover' : 'bg-accent'}`}
             style={{ width: `${audioUrl ? Math.min(100, (previewDuration / MIN_DURATION_MS) * 100) : progress}%` }}
           />
         </div>
@@ -172,14 +172,14 @@ export function RecordingView({ onUseRecording }: Props) {
       </div>
 
       {permissionDenied && (
-        <p className="text-center text-sm text-red-500">Microphone access is blocked. Enable it in browser settings.</p>
+        <p className="text-center text-sm text-danger">Microphone access is blocked. Enable it in browser settings.</p>
       )}
 
       {audioUrl && (
         <div className="glass-panel flex w-full flex-col gap-3 rounded-2xl border border-border p-3">
           <audio controls src={audioUrl} className="w-full" />
           {tooShortHint && !previewMeetsMin && (
-            <p className="rounded-lg border border-red-700/60 bg-red-950/50 px-3 py-2 text-xs text-red-200">
+            <p className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
               Please record at least 30 seconds for a good voice clone.
             </p>
           )}
@@ -187,7 +187,7 @@ export function RecordingView({ onUseRecording }: Props) {
             <button
               type="button"
               onClick={rerecord}
-              className="flex-1 rounded-full border border-border bg-elevated px-6 py-3 text-text-primary transition hover:border-red-500/60"
+              className="flex-1 rounded-full border border-border bg-elevated px-6 py-3 text-text-primary transition hover:border-accent/60"
             >
               Re-record
             </button>
@@ -195,7 +195,7 @@ export function RecordingView({ onUseRecording }: Props) {
               type="button"
               onClick={useRecording}
               disabled={!previewMeetsMin}
-              className="flex-1 rounded-full bg-red-600 px-6 py-3 font-semibold text-white shadow-[0_0_16px_rgba(239,68,68,0.35)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex-1 rounded-full bg-accent px-6 py-3 font-semibold text-white shadow-[0_0_16px_var(--color-accent-soft)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Use This Voice
             </button>
