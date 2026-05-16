@@ -264,7 +264,7 @@ export default function App() {
   )
 
   return (
-    <div className="orb-bg tech-grid relative min-h-screen bg-surface text-text-primary transition-colors duration-300">
+    <div className="orb-bg tech-grid relative min-h-dvh overflow-x-hidden bg-surface text-text-primary transition-colors duration-300">
       <OnboardingOverlay
         open={showOnboarding && isAuthenticated}
         step={onboardingStep}
@@ -307,7 +307,7 @@ export default function App() {
         }}
       />
 
-      <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-6 lg:max-w-2xl">
+      <main className="relative z-10 mx-auto flex min-h-dvh w-full max-w-md flex-col px-3 py-3 pb-24 sm:px-4 sm:py-5 sm:pb-6 lg:max-w-2xl">
         <Navbar
           step={step}
           hasHistory={conversations.length > 0}
@@ -316,10 +316,14 @@ export default function App() {
           onOpenProfile={() => setShowProfile(true)}
         />
 
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
-          <div className="flex items-center gap-2">
-            {demoMode && <span className="rounded-full border border-danger/40 bg-danger-soft px-2 py-0.5 text-danger">Demo Mode</span>}
-            {step === 'chat' && <span>{currentConversationTitle}</span>}
+        <div className="mb-3 flex min-h-6 flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
+          <div className="flex min-w-0 items-center gap-2">
+            {demoMode && (
+              <span className="shrink-0 rounded-full border border-danger/40 bg-danger-soft px-2 py-0.5 text-danger">
+                Demo Mode
+              </span>
+            )}
+            {step === 'chat' && <span className="truncate">{currentConversationTitle}</span>}
           </div>
         </div>
 
@@ -344,7 +348,7 @@ export default function App() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="glass-panel glow-accent rounded-2xl border border-border p-4 shadow-sm"
+          className="glass-panel glow-accent rounded-2xl border border-border p-3 shadow-sm sm:p-4"
         >
           {step === 'auth' && <AuthScreen />}
           {step === 'home' && (
@@ -382,11 +386,11 @@ export default function App() {
           )}
         </motion.section>
 
-        <footer className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
+        <footer className="mt-4 flex flex-col gap-3 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
           <p className="inline-flex items-center gap-1">
             <Sparkles size={12} className="text-accent" /> Powered by OpenAI + ElevenLabs
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {step === 'chat' && (
               <button
                 type="button"

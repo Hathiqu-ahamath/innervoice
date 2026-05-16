@@ -29,8 +29,8 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
   const current = STEPS[step]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md rounded-2xl border border-border p-6">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay p-3 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="glass-panel max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-border p-5 sm:p-6">
         <h2 className="text-xl font-semibold text-text-primary">{current.title}</h2>
         <p className="mt-2 text-sm text-text-secondary">{current.text}</p>
         <div className="mt-4 flex gap-2">
@@ -41,20 +41,25 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
             />
           ))}
         </div>
-        <div className="mt-6 flex items-center justify-between">
-          <button type="button" onClick={onSkip} className="text-sm text-text-tertiary">
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button type="button" onClick={onSkip} className="min-h-10 text-sm text-text-tertiary sm:min-h-0">
             Skip tutorial
           </button>
-          <div className="flex gap-2">
-            <button type="button" onClick={onBack} disabled={step === 0} className="rounded-full border px-4 py-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <button
+              type="button"
+              onClick={onBack}
+              disabled={step === 0}
+              className="min-h-11 rounded-full border border-border bg-elevated px-4 py-2 disabled:opacity-50"
+            >
               Back
             </button>
             {last ? (
-              <button type="button" onClick={onFinish} className="rounded-full bg-accent px-4 py-2 text-white">
+              <button type="button" onClick={onFinish} className="min-h-11 rounded-full bg-accent px-4 py-2 text-white">
                 Get Started
               </button>
             ) : (
-              <button type="button" onClick={onNext} className="rounded-full bg-accent px-4 py-2 text-white">
+              <button type="button" onClick={onNext} className="min-h-11 rounded-full bg-accent px-4 py-2 text-white">
                 Next
               </button>
             )}

@@ -113,19 +113,19 @@ export function RecordingView({ onUseRecording }: Props) {
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="flex flex-col gap-5"
+      className="flex flex-col gap-4 sm:gap-5"
     >
       <div className="text-center">
         <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
           <BookOpen size={18} className="text-accent" />
           Voice Training
         </h2>
-        <p className="mt-1 text-xs text-text-secondary">
+        <p className="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-text-secondary">
           Read the passage below clearly for at least <span className="font-semibold text-text-primary">30 seconds</span>.
         </p>
       </div>
 
-      <div className="glass-panel max-h-[230px] overflow-y-auto rounded-2xl border border-border p-4 text-sm leading-relaxed text-text-secondary">
+      <div className="glass-panel max-h-[32dvh] min-h-[150px] overflow-y-auto rounded-2xl border border-border p-3 text-sm leading-relaxed text-text-secondary sm:max-h-[230px] sm:p-4">
         {TRAINING_PASSAGE.split('\n\n').map((paragraph, idx) => (
           <p key={idx} className={idx === 0 ? '' : 'mt-3'}>
             {paragraph}
@@ -138,7 +138,7 @@ export function RecordingView({ onUseRecording }: Props) {
           type="button"
           aria-label="Start or stop recording"
           onClick={isRecording ? stopRecording : audioUrl ? rerecord : startRecording}
-          className={`relative flex h-24 w-24 items-center justify-center rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_var(--color-accent-soft)] transition active:scale-95 ${
+          className={`relative flex h-20 w-20 items-center justify-center rounded-full border text-sm font-semibold text-white shadow-[0_0_30px_var(--color-accent-soft)] transition active:scale-95 sm:h-24 sm:w-24 ${
             audioUrl
               ? 'border-white/20 bg-white/15'
               : isRecording
@@ -167,7 +167,9 @@ export function RecordingView({ onUseRecording }: Props) {
           />
         </div>
         {isRecording && !hasReachedMin && (
-          <p className="text-xs text-text-tertiary">Keep reading… {Math.max(0, Math.ceil((MIN_DURATION_MS - elapsedMs) / 1000))}s remaining</p>
+          <p className="text-center text-xs text-text-tertiary">
+            Keep reading... {Math.max(0, Math.ceil((MIN_DURATION_MS - elapsedMs) / 1000))}s remaining
+          </p>
         )}
       </div>
 
@@ -187,7 +189,7 @@ export function RecordingView({ onUseRecording }: Props) {
             <button
               type="button"
               onClick={rerecord}
-              className="flex-1 rounded-full border border-border bg-elevated px-6 py-3 text-text-primary transition hover:border-accent/60"
+              className="min-h-11 flex-1 rounded-full border border-border bg-elevated px-6 py-3 text-text-primary transition hover:border-accent/60"
             >
               Re-record
             </button>
@@ -195,7 +197,7 @@ export function RecordingView({ onUseRecording }: Props) {
               type="button"
               onClick={useRecording}
               disabled={!previewMeetsMin}
-              className="flex-1 rounded-full bg-accent px-6 py-3 font-semibold text-white shadow-[0_0_16px_var(--color-accent-soft)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+              className="min-h-11 flex-1 rounded-full bg-accent px-6 py-3 font-semibold text-white shadow-[0_0_16px_var(--color-accent-soft)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Use This Voice
             </button>

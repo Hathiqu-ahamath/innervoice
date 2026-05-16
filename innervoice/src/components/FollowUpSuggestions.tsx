@@ -35,7 +35,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay p-3 backdrop-blur-sm sm:items-center sm:p-4"
           onClick={onClose}
         >
           <motion.div
@@ -46,7 +46,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="suggestions-title"
-            className="glass-panel glow-accent w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl"
+            className="glass-panel glow-accent max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-border p-4 shadow-2xl sm:p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div>
@@ -81,7 +81,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
                       onSelect(item)
                       onClose()
                     }}
-                    className="rounded-xl border border-border bg-elevated px-4 py-3 text-left text-sm text-text-primary transition hover:border-accent/50 hover:bg-accent-soft"
+                    className="min-h-12 rounded-xl border border-border bg-elevated px-4 py-3 text-left text-sm text-text-primary transition hover:border-accent/50 hover:bg-accent-soft"
                   >
                     {item}
                   </button>

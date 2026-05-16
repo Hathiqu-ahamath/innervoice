@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Mic, MicOff, PhoneOff, Radio, Sparkles, Volume2, X } from 'lucide-react'
+import type { Emotion } from '../../types'
 import { useAuth } from '../../AuthContext'
 import { useLiveConversation } from './useLiveConversation'
 import { useVoiceInput } from './useVoiceInput'
 import { useVoiceOutput } from './useVoiceOutput'
 
 const SILENCE_AUTO_CLOSE_MS = 18000
-const FILLER_DELAY_MS = 550
+const FILLER_DELAY_MS = 700
 
 const THINKING_FILLERS = [
   { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
@@ -22,6 +23,34 @@ function pickFiller() {
   return THINKING_FILLERS[Math.floor(Math.random() * THINKING_FILLERS.length)]
 }
 
+// Tiny acknowledgments that should NOT trigger a brand new AI turn. These let
+// the user nod along ("yeah", "mhm") without derailing the previous reply.
+const BACKCHANNELS = new Set([
+  'yeah', 'yes', 'yep', 'yup', 'ok', 'okay', 'k',
+  'mhm', 'mmhm', 'mm', 'mmm', 'hm', 'hmm', 'huh',
+  'uh huh', 'uhhuh', 'uh-huh', 'mm-hmm',
+  'right', 'sure', 'cool', 'nice', 'wow', 'aha',
+  'go on', 'continue', 'i see', 'gotcha', 'got it',
+  'thanks', 'thank you',
+])
+
+function normalizeUtterance(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isBackchannel(text: string): boolean {
+  const cleaned = normalizeUtterance(text)
+  if (!cleaned) return true
+  if (BACKCHANNELS.has(cleaned)) return true
+  const words = cleaned.split(/\s+/)
+  if (words.length <= 2 && words.every((w) => BACKCHANNELS.has(w))) return true
+  return false
+}
+
 function currentTimestamp() {
   return Date.now()
 }
@@ -30,7 +59,7 @@ function LiveOrb({ level, active }: { level: number; active: boolean }) {
   const scale = active ? 0.96 + Math.min(0.34, level * 0.36) : 1
   const glow = active ? 0.18 + Math.min(0.62, level * 0.68) : 0.1
   return (
-    <div className="relative mx-auto flex h-48 w-48 items-center justify-center sm:h-56 sm:w-56">
+    <div className="relative mx-auto flex h-36 w-36 items-center justify-center sm:h-56 sm:w-56">
       {[0, 1, 2].map((ring) => (
         <motion.span
           key={ring}
@@ -49,7 +78,7 @@ function LiveOrb({ level, active }: { level: number; active: boolean }) {
         />
       ))}
       <motion.div
-        className="relative flex h-28 w-28 items-center justify-center rounded-full border border-accent/40 bg-accent-soft sm:h-32 sm:w-32"
+        className="relative flex h-24 w-24 items-center justify-center rounded-full border border-accent/40 bg-accent-soft sm:h-32 sm:w-32"
         animate={{
           scale: active ? scale : [1, 1.03, 1],
           boxShadow: `0 0 ${20 + level * 52}px rgb(95 143 139 / ${glow.toFixed(2)})`,
@@ -66,7 +95,7 @@ function LiveOrb({ level, active }: { level: number; active: boolean }) {
 function WaveStrip({ level, active }: { level: number; active: boolean }) {
   const points = 48
   return (
-    <div className="mt-4 flex h-10 items-center justify-center gap-1">
+    <div className="mt-3 flex h-8 items-center justify-center gap-1 sm:mt-4 sm:h-10">
       {Array.from({ length: points }).map((_, i) => {
         const wave = Math.sin(i / 4) * 0.5 + 0.5
         const height = active ? 4 + Math.max(2, level * 30 * wave) : 4
@@ -97,94 +126,190 @@ export function LiveVoiceController() {
   const sessionIdRef = useRef(0)
   const lastHandledTranscriptRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
 
+  // Re-entrancy + interrupt tracking.
+  const isProcessingRef = useRef(false)
+  const isSpeakingRef = useRef(false)
+  const wasInterruptedRef = useRef(false)
+  const pendingFollowupRef = useRef<string>('')
+  const lastReplyRef = useRef<{ text: string; emotion: Emotion; display: string } | null>(null)
+
   const { state, processUserTurn, resetConversation } = useLiveConversation()
   const { isSpeaking, outputLevel, speak, stopSpeaking } = useVoiceOutput()
 
+  useEffect(() => {
+    isSpeakingRef.current = isSpeaking
+  }, [isSpeaking])
+
+  // Defined below `useVoiceInput`. Forward-declared via a ref so the hook can
+  // call it without depending on the not-yet-defined handler.
+  const handleTranscriptRef = useRef<(text: string) => void>(() => {})
+
   const { isSupported, isListening, transcript, inputLevel, startListening, stopListening } = useVoiceInput({
     onSpeechStart: () => {
-      // Interrupt support: if user starts talking, cut AI voice immediately.
-      if (isSpeaking) stopSpeaking()
+      // Interrupt support: if AI is mid-sentence, stop it the moment the user
+      // starts talking. The transcript that follows will decide whether this
+      // was a real interruption or just a "mhm" backchannel.
+      if (isSpeakingRef.current) {
+        wasInterruptedRef.current = true
+        stopSpeaking()
+        setStatusDetail("I'm listening...")
+      } else {
+        setStatusDetail("I'm listening...")
+      }
       lastActivityAtRef.current = currentTimestamp()
-      setStatusDetail("I'm listening...")
     },
     onActivity: () => {
       lastActivityAtRef.current = currentTimestamp()
     },
     onError: (message) => setStatusDetail(message),
-    onFinalTranscript: async (finalText) => {
-      if (!liveModeRef.current || !sessionActiveRef.current) return
-      const sessionId = sessionIdRef.current
-      const normalized = finalText.trim().toLowerCase()
-      const now = currentTimestamp()
-      if (
-        normalized &&
-        normalized === lastHandledTranscriptRef.current.text &&
-        now - lastHandledTranscriptRef.current.at < 3200
-      ) {
-        setStatusDetail("I'm listening...")
-        setTimeout(() => {
-          if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-          startListening()
-        }, 180)
-        return
-      }
-      lastHandledTranscriptRef.current = { text: normalized, at: now }
-      lastActivityAtRef.current = currentTimestamp()
-      setStatusDetail('Thinking...')
-      setLastUserCaption(finalText)
-      stopListening()
+    onFinalTranscript: (finalText) => {
+      handleTranscriptRef.current(finalText)
+    },
+  })
 
-      // Start the LLM call right away so we can race a filler against it.
-      const turnPromise = processUserTurn(finalText)
-
-      // If the response is slow, slip in a short human-like filler so it
-      // doesn't feel like dead air on the other end of the line.
-      const filler = pickFiller()
-      let fillerPromise: Promise<void> | null = null
-      const fillerTimer = window.setTimeout(() => {
-        if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-        setStatusDetail(filler.display)
-        setLatestReply(filler.display)
-        fillerPromise = speak({
-          text: filler.spoken,
-          emotion: 'neutral',
-          voiceId,
-          realtime: true,
-        })
-      }, FILLER_DELAY_MS)
-
-      const turn = await turnPromise
-      window.clearTimeout(fillerTimer)
-      if (fillerPromise) {
-        // let the filler finish so we don't cut ourselves off mid-word
-        try { await fillerPromise } catch { /* ignore */ }
-      }
-      if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-      if (!turn) {
-        if (liveModeRef.current) {
-          setStatusDetail("I'm listening...")
-          startListening()
-        }
-        return
-      }
-      setLatestReply(turn.displayText)
+  const speakReply = useCallback(
+    async (replyText: string, replyEmotion: Emotion) => {
       setStatusDetail('Speaking...')
       await speak({
-        text: turn.spokenText,
-        emotion: turn.emotion,
+        text: replyText,
+        emotion: replyEmotion,
         voiceId,
         realtime: false,
       })
-      if (liveModeRef.current && sessionIdRef.current === sessionId) {
+    },
+    [speak, voiceId],
+  )
+
+  const handleTranscript = useCallback(
+    async (finalText: string) => {
+      if (!liveModeRef.current || !sessionActiveRef.current) return
+      const sessionId = sessionIdRef.current
+      const normalized = finalText.trim().toLowerCase()
+      if (!normalized) return
+
+      // Dedupe the exact same transcript that fires twice within a few seconds
+      // (can happen with overlapping recorder chunks).
+      const now = currentTimestamp()
+      if (
+        normalized === lastHandledTranscriptRef.current.text &&
+        now - lastHandledTranscriptRef.current.at < 3200
+      ) {
+        return
+      }
+      lastHandledTranscriptRef.current = { text: normalized, at: now }
+      lastActivityAtRef.current = now
+
+      // Backchannel after we just interrupted the AI: don't start a whole new
+      // turn — the user only nodded along. Just keep listening and let the AI
+      // settle back into "I'm here" mode.
+      if (wasInterruptedRef.current && isBackchannel(finalText)) {
+        wasInterruptedRef.current = false
         setStatusDetail("I'm listening...")
-        lastActivityAtRef.current = currentTimestamp()
-        setTimeout(() => {
+        return
+      }
+
+      // If we're already mid-turn, append the new utterance to a pending
+      // follow-up so we don't drop what the user just added. It will be
+      // processed as the next turn.
+      if (isProcessingRef.current || isSpeakingRef.current) {
+        if (isSpeakingRef.current) {
+          wasInterruptedRef.current = true
+          stopSpeaking()
+        }
+        pendingFollowupRef.current = pendingFollowupRef.current
+          ? `${pendingFollowupRef.current} ${finalText}`.trim()
+          : finalText
+        return
+      }
+
+      isProcessingRef.current = true
+      try {
+        // Pull in any queued follow-up so the AI sees the full thought.
+        let combined = finalText
+        if (pendingFollowupRef.current) {
+          combined = `${pendingFollowupRef.current} ${finalText}`.trim()
+          pendingFollowupRef.current = ''
+        }
+        wasInterruptedRef.current = false
+
+        setStatusDetail('Thinking...')
+        setLastUserCaption(combined)
+
+        const turnPromise = processUserTurn(combined)
+
+        // Race the LLM against a short human-like filler so silence > 700ms
+        // never feels dead.
+        const filler = pickFiller()
+        let fillerPromise: Promise<void> | null = null
+        const fillerTimer = window.setTimeout(() => {
           if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-          startListening()
-        }, 220)
+          if (wasInterruptedRef.current) return
+          setStatusDetail(filler.display)
+          setLatestReply(filler.display)
+          fillerPromise = speak({
+            text: filler.spoken,
+            emotion: 'neutral',
+            voiceId,
+            realtime: true,
+          })
+        }, FILLER_DELAY_MS)
+
+        const turn = await turnPromise
+        window.clearTimeout(fillerTimer)
+        if (fillerPromise) {
+          try { await fillerPromise } catch { /* ignore */ }
+        }
+        if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
+        if (!turn) {
+          setStatusDetail("I'm listening...")
+          return
+        }
+
+        // If user has already interrupted again while we were generating, skip
+        // speaking this stale reply and let the new follow-up take priority.
+        if (wasInterruptedRef.current || pendingFollowupRef.current) {
+          lastReplyRef.current = {
+            text: turn.spokenText,
+            emotion: turn.emotion,
+            display: turn.displayText,
+          }
+          setLatestReply(turn.displayText)
+          return
+        }
+
+        lastReplyRef.current = {
+          text: turn.spokenText,
+          emotion: turn.emotion,
+          display: turn.displayText,
+        }
+        setLatestReply(turn.displayText)
+        await speakReply(turn.spokenText, turn.emotion)
+
+        if (liveModeRef.current && sessionIdRef.current === sessionId) {
+          setStatusDetail("I'm listening...")
+          lastActivityAtRef.current = currentTimestamp()
+        }
+      } finally {
+        isProcessingRef.current = false
+        // If anything queued up while we were busy, process it next.
+        if (
+          liveModeRef.current &&
+          sessionActiveRef.current &&
+          pendingFollowupRef.current
+        ) {
+          const next = pendingFollowupRef.current
+          pendingFollowupRef.current = ''
+          // Defer one tick to let state settle.
+          window.setTimeout(() => handleTranscriptRef.current(next), 60)
+        }
       }
     },
-  })
+    [processUserTurn, speak, speakReply, stopSpeaking, voiceId],
+  )
+
+  useEffect(() => {
+    handleTranscriptRef.current = handleTranscript
+  }, [handleTranscript])
 
   useEffect(() => {
     liveModeRef.current = isLiveMode
@@ -292,7 +417,7 @@ export function LiveVoiceController() {
             transition={{ duration: 0.18 }}
             className="fixed inset-0 z-[70] flex bg-overlay/95"
           >
-            <div className="glass-panel relative flex min-h-full w-full flex-col overflow-hidden border-border">
+            <div className="glass-panel relative flex min-h-dvh w-full flex-col overflow-hidden border-border">
               <motion.div
                 aria-hidden="true"
                 className="pointer-events-none absolute -left-24 top-16 h-64 w-64 rounded-full bg-accent/20 blur-3xl"
@@ -305,7 +430,7 @@ export function LiveVoiceController() {
                 animate={{ scale: [1.08, 0.95, 1.08], opacity: [0.2, 0.36, 0.2] }}
                 transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
               />
-              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5 sm:py-4">
                 <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
                   <Radio size={14} className="text-accent" />
                   Live Voice Mode
@@ -320,8 +445,8 @@ export function LiveVoiceController() {
                 </button>
               </div>
 
-              <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-5 py-6">
-                <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-4 shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
+              <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col justify-center gap-3 overflow-y-auto px-3 py-4 sm:gap-4 sm:px-5 sm:py-6">
+                <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-3 shadow-[0_10px_40px_rgba(0,0,0,0.08)] sm:p-4">
                   <LiveOrb level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <WaveStrip level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <p className="mt-3 text-center text-sm text-text-secondary">{statusDetail}</p>
@@ -336,15 +461,15 @@ export function LiveVoiceController() {
                   </p>
                 )}
 
-                <div className="rounded-2xl border border-border bg-surface-card p-3">
+                <div className="min-h-0 rounded-2xl border border-border bg-surface-card p-3">
                   <p className="inline-flex items-center gap-1.5 text-xs font-medium text-text-tertiary">
                     <Sparkles size={12} className="text-accent" /> Captions
                   </p>
                   {(transcript || lastUserCaption || latestReply) ? (
-                    <div className="mt-2 space-y-2">
+                    <div className="mt-2 max-h-[28dvh] space-y-2 overflow-y-auto pr-1 sm:max-h-none">
                       {(transcript || lastUserCaption) && (
                         <p
-                          className={`ml-auto max-w-[88%] rounded-2xl border px-3 py-2 text-sm text-text-primary transition ${
+                          className={`ml-auto max-w-[92%] break-words rounded-2xl border px-3 py-2 text-sm text-text-primary transition sm:max-w-[88%] ${
                             isListening
                               ? 'border-accent/60 bg-accent-soft'
                               : 'border-border bg-elevated'
@@ -355,7 +480,7 @@ export function LiveVoiceController() {
                       )}
                       {latestReply && (
                         <p
-                          className={`mr-auto max-w-[88%] rounded-2xl border px-3 py-2 text-sm text-text-primary transition ${
+                          className={`mr-auto max-w-[92%] break-words rounded-2xl border px-3 py-2 text-sm text-text-primary transition sm:max-w-[88%] ${
                             isSpeaking
                               ? 'border-accent/60 bg-accent-soft'
                               : 'border-border bg-assistant-bubble'
@@ -378,12 +503,12 @@ export function LiveVoiceController() {
                   </p>
                 )}
 
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <span className="text-xs text-text-tertiary">{state.conversationHistory.length} turns in memory</span>
                   <button
                     type="button"
                     onClick={isSessionActive ? endSession : startSession}
-                    className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+                    className="inline-flex min-h-10 items-center justify-center gap-1 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
                   >
                     <PhoneOff size={12} />
                     {isSessionActive ? 'End Session' : 'Start Session'}
@@ -399,7 +524,7 @@ export function LiveVoiceController() {
         type="button"
         aria-label={isLiveMode ? 'Stop live voice mode' : 'Start live voice mode'}
         onClick={isLiveMode ? closePopup : openPopupAndStart}
-        className="fixed bottom-6 right-4 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full border border-border bg-accent text-white shadow-[0_0_20px_var(--color-accent-soft)] transition hover:scale-[1.03]"
+        className="fixed bottom-4 right-4 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full border border-border bg-accent text-white shadow-[0_0_20px_var(--color-accent-soft)] transition hover:scale-[1.03] sm:bottom-6"
       >
         {isLiveMode ? (isSessionActive ? (isListening ? <Mic size={20} /> : <Volume2 size={20} />) : <MicOff size={20} />) : <MicOff size={20} />}
       </button>

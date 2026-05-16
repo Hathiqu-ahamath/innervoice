@@ -107,12 +107,12 @@ export function VoiceInput({ onTranscript, disabled = false }: Props) {
   return (
     <div className="relative flex shrink-0 items-center justify-center">
       {error && (
-        <p className="pointer-events-none absolute -top-14 left-1/2 z-20 w-max max-w-[280px] -translate-x-1/2 rounded-lg border border-danger/40 bg-danger-soft px-3 py-1.5 text-center text-xs text-danger">
+        <p className="pointer-events-none absolute -top-14 left-1/2 z-20 w-[min(280px,80vw)] -translate-x-1/2 rounded-lg border border-danger/40 bg-danger-soft px-3 py-1.5 text-center text-xs text-danger">
           {error}
         </p>
       )}
       {isRecording && (
-        <p className="pointer-events-none absolute -top-10 left-1/2 z-20 -translate-x-1/2 text-xs text-accent">
+        <p className="pointer-events-none absolute -top-10 left-1/2 z-20 w-max -translate-x-1/2 whitespace-nowrap text-xs text-accent">
           {elapsedSec}s — tap to send
         </p>
       )}
@@ -121,7 +121,7 @@ export function VoiceInput({ onTranscript, disabled = false }: Props) {
         aria-label={isRecording ? 'Stop and transcribe' : isTranscribing ? 'Transcribing' : 'Record voice message'}
         disabled={disabled || isTranscribing}
         onClick={handleClick}
-        className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:h-12 sm:w-12 ${
           isRecording
             ? 'border-accent bg-accent text-white shadow-[0_0_24px_var(--color-accent-soft)]'
             : isTranscribing

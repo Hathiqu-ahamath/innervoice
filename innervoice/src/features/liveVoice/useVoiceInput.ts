@@ -8,14 +8,45 @@ interface UseVoiceInputOptions {
   onError?: (message: string) => void
 }
 
-const SPEECH_RMS_THRESHOLD = 0.018
-const MIN_UTTERANCE_MS = 900
+const SPEECH_RMS_THRESHOLD = 0.014
+const MIN_UTTERANCE_MS = 850
 const SILENCE_AFTER_SPEECH_MS = 850
-const MAX_UTTERANCE_MS = 10000
-const NO_SPEECH_RESTART_MS = 6000
+const MAX_UTTERANCE_MS = 11000
+const NO_SPEECH_RESTART_MS = 6500
+// On mobile, the audio meter can stay suspended even after permission is
+// granted. In that case `speechDetected` never flips true. As a safety net we
+// still transcribe a recorded chunk if the blob is reasonably large.
+const MOBILE_FALLBACK_BYTES = 9000
 
 function nowMs() {
   return Date.now()
+}
+
+function pickMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ]
+  for (const candidate of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(candidate)) return candidate
+    } catch {
+      // ignore
+    }
+  }
+  return undefined
+}
+
+function extensionFor(mime?: string): string {
+  if (!mime) return 'webm'
+  if (mime.includes('mp4')) return 'mp4'
+  if (mime.includes('ogg')) return 'ogg'
+  return 'webm'
 }
 
 export function useVoiceInput({
@@ -24,7 +55,9 @@ export function useVoiceInput({
   onActivity,
   onError,
 }: UseVoiceInputOptions) {
-  const [isSupported] = useState(Boolean(navigator.mediaDevices?.getUserMedia))
+  const [isSupported] = useState(
+    Boolean(navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'),
+  )
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [inputLevel, setInputLevel] = useState(0)
@@ -36,8 +69,10 @@ export function useVoiceInput({
   const meterContextRef = useRef<AudioContext | null>(null)
   const meterAnalyserRef = useRef<AnalyserNode | null>(null)
   const meterRafRef = useRef<number | null>(null)
+  const meterAliveRef = useRef(false)
 
   const stopMeter = useCallback(() => {
+    meterAliveRef.current = false
     if (meterRafRef.current !== null) {
       cancelAnimationFrame(meterRafRef.current)
       meterRafRef.current = null
@@ -64,7 +99,11 @@ export function useVoiceInput({
       chunkStopTimerRef.current = null
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop()
+      try {
+        recorderRef.current.stop()
+      } catch {
+        // noop
+      }
     }
     recorderRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -82,21 +121,43 @@ export function useVoiceInput({
       onError?.('Live voice is not supported in this browser.')
       return
     }
+    if (typeof MediaRecorder === 'undefined') {
+      onError?.('Recording is not supported in this browser.')
+      return
+    }
     try {
       runningRef.current = true
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
       streamRef.current = stream
       setIsListening(true)
 
       // Real mic meter from same stream used for capture.
       try {
-        const context = new AudioContext()
+        const Ctx: typeof AudioContext =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        const context = new Ctx()
+        // iOS Safari opens AudioContext suspended; resuming is required.
+        if (context.state === 'suspended') {
+          try {
+            await context.resume()
+          } catch {
+            // ignore – we still try to use it
+          }
+        }
         const analyser = context.createAnalyser()
         analyser.fftSize = 128
         const source = context.createMediaStreamSource(stream)
         source.connect(analyser)
         meterContextRef.current = context
         meterAnalyserRef.current = analyser
+        meterAliveRef.current = true
         const data = new Uint8Array(analyser.frequencyBinCount)
         const tick = () => {
           if (!meterAnalyserRef.current) return
@@ -116,47 +177,99 @@ export function useVoiceInput({
         }
         meterRafRef.current = requestAnimationFrame(tick)
       } catch {
+        meterAliveRef.current = false
         setInputLevel(0)
       }
 
       const runCycle = () => {
         if (!runningRef.current || !streamRef.current) return
-        const recorder = new MediaRecorder(streamRef.current)
+        const mimeType = pickMimeType()
+        let recorder: MediaRecorder
+        try {
+          recorder = mimeType
+            ? new MediaRecorder(streamRef.current, { mimeType })
+            : new MediaRecorder(streamRef.current)
+        } catch {
+          // mimeType not supported – try the default
+          try {
+            recorder = new MediaRecorder(streamRef.current)
+          } catch {
+            onError?.('Recording is not supported on this device.')
+            runningRef.current = false
+            setIsListening(false)
+            return
+          }
+        }
         recorderRef.current = recorder
         const chunks: BlobPart[] = []
         const startedAt = nowMs()
         let speechDetected = false
         let lastSpeechAt = startedAt
+
         recorder.ondataavailable = (event) => {
-          if (event.data.size > 0) chunks.push(event.data)
+          if (event.data && event.data.size > 0) chunks.push(event.data)
         }
-        recorder.onstop = async () => {
+        recorder.onstop = () => {
           if (chunkStopTimerRef.current !== null) {
             window.clearTimeout(chunkStopTimerRef.current)
             chunkStopTimerRef.current = null
           }
-          if (!runningRef.current) return
-          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
-          if (speechDetected && blob.size > 1800) {
-            try {
-              const text = await transcribeAudio(blob)
+          const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
+
+          // Restart the next recording cycle immediately so we keep capturing
+          // audio while the current chunk is being transcribed. This is what
+          // gives us mid-response interrupt support and avoids dropping the
+          // start of the user's next sentence.
+          if (runningRef.current) window.setTimeout(runCycle, 80)
+
+          const meterFailed = !meterAliveRef.current
+          const meaningfulSize = blob.size > 1800
+          const passedSizeFallback = blob.size > MOBILE_FALLBACK_BYTES
+          const shouldTranscribe =
+            meaningfulSize && (speechDetected || meterFailed || passedSizeFallback)
+
+          if (!shouldTranscribe) return
+
+          // Some browsers report blob.size = 0 if the recorder was stopped
+          // before any data was flushed.
+          if (blob.size < 1000) return
+
+          // Use a stable filename + extension so Whisper auto-detects the
+          // container correctly on iOS (mp4) vs desktop (webm).
+          const file = new File([blob], `speech.${extensionFor(recorder.mimeType || mimeType)}`, {
+            type: recorder.mimeType || mimeType || 'audio/webm',
+          })
+
+          transcribeAudio(file)
+            .then((text) => {
               const trimmed = text.trim()
-              if (trimmed) {
-                onActivity?.()
-                setTranscript(trimmed)
-                await onFinalTranscript(trimmed)
-                setTranscript('')
-              }
-            } catch (err) {
+              if (!trimmed) return
+              onActivity?.()
+              setTranscript(trimmed)
+              // Fire-and-forget so the recording loop is never blocked by the
+              // controller's LLM/TTS pipeline.
+              Promise.resolve(onFinalTranscript(trimmed))
+                .catch(() => {})
+                .finally(() => setTranscript(''))
+            })
+            .catch((err) => {
               const message = err instanceof Error ? err.message : 'Live transcription failed.'
               if (!/too short|no speech detected/i.test(message)) {
                 onError?.(message)
               }
-            }
-          }
-          if (runningRef.current) window.setTimeout(runCycle, 120)
+            })
         }
-        recorder.start(250)
+
+        try {
+          recorder.start(250)
+        } catch {
+          // Some Safari versions throw if the timeslice is too small.
+          try {
+            recorder.start()
+          } catch {
+            return
+          }
+        }
 
         const watchForSilence = () => {
           if (!runningRef.current || recorder.state === 'inactive') return
@@ -173,19 +286,33 @@ export function useVoiceInput({
           }
 
           const shouldStopForSpeech =
-            speechDetected && elapsed >= MIN_UTTERANCE_MS && nowMs() - lastSpeechAt >= SILENCE_AFTER_SPEECH_MS
+            speechDetected &&
+            elapsed >= MIN_UTTERANCE_MS &&
+            nowMs() - lastSpeechAt >= SILENCE_AFTER_SPEECH_MS
           const shouldStopForMaxLength = elapsed >= MAX_UTTERANCE_MS
 
           if (shouldStopForSpeech || shouldStopForMaxLength) {
-            recorder.stop()
+            try {
+              recorder.stop()
+            } catch {
+              // noop
+            }
             return
           }
 
           chunkStopTimerRef.current = window.setTimeout(watchForSilence, 120)
         }
 
+        // Safety net: if no speech is detected, stop after a fixed window so
+        // we can still transcribe (mobile fallback) or simply restart fresh.
         chunkStopTimerRef.current = window.setTimeout(() => {
-          if (!speechDetected && recorder.state !== 'inactive') recorder.stop()
+          if (recorder.state !== 'inactive') {
+            try {
+              recorder.stop()
+            } catch {
+              // noop
+            }
+          }
         }, NO_SPEECH_RESTART_MS)
         window.setTimeout(watchForSilence, 120)
       }

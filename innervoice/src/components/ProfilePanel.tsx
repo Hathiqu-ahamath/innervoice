@@ -107,7 +107,7 @@ export function ProfilePanel({ open, onClose }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay p-3 backdrop-blur-sm sm:items-center sm:p-4"
           onClick={onClose}
         >
           <motion.div
@@ -117,7 +117,7 @@ export function ProfilePanel({ open, onClose }: Props) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="profile-title"
-            className="glass-panel glow-accent w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl"
+            className="glass-panel glow-accent max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-border p-4 shadow-2xl sm:p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-2 flex justify-end">
@@ -151,11 +151,11 @@ export function ProfilePanel({ open, onClose }: Props) {
                   onChange={onPhotoSelected}
                 />
               </div>
-              <div className="text-center sm:text-left">
+              <div className="min-w-0 text-center sm:text-left">
                 <h2 id="profile-title" className="text-lg font-semibold text-text-primary">
                   Your profile
                 </h2>
-                <p className="text-xs text-text-secondary">{user.email}</p>
+                <p className="break-all text-xs text-text-secondary">{user.email}</p>
                 <p className="mt-1 text-xs text-text-tertiary">
                   {uploadingPhoto ? 'Processing photo…' : 'Tap the camera to add a photo'}
                 </p>
@@ -181,11 +181,11 @@ export function ProfilePanel({ open, onClose }: Props) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
-                  className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
+                  className="min-h-11 rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent/60"
                 />
               </label>
               <label
-                className={`flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-elevated px-4 py-3 transition ${
+                className={`flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-elevated px-3 py-3 transition sm:px-4 ${
                   !avatarUrl ? 'cursor-not-allowed opacity-50' : 'hover:border-accent/40'
                 }`}
               >
@@ -197,7 +197,7 @@ export function ProfilePanel({ open, onClose }: Props) {
                   onChange={(e) => setThemeFromAvatar(e.target.checked)}
                 />
                 <span className="flex flex-col gap-0.5">
-                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                  <span className="inline-flex items-start gap-1.5 text-sm font-medium text-text-primary">
                     <Palette size={14} className="text-accent" />
                     Match UI colors to my photo
                   </span>
@@ -245,7 +245,7 @@ export function ProfilePanel({ open, onClose }: Props) {
               <button
                 type="submit"
                 disabled={submitting || uploadingPhoto}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 font-semibold text-white shadow-[0_0_18px_var(--color-accent-soft)] transition hover:bg-accent-hover hover:scale-[1.02] disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 font-semibold text-white shadow-[0_0_18px_var(--color-accent-soft)] transition hover:bg-accent-hover hover:scale-[1.02] disabled:opacity-50"
               >
                 <User size={16} />
                 {submitting ? 'Saving…' : 'Save profile'}
