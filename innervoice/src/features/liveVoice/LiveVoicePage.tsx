@@ -417,7 +417,7 @@ export function LiveVoicePage({ onLeave }: Props) {
   }, [])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       {/* Ambient glow blobs */}
       <motion.div
         aria-hidden="true"
@@ -441,8 +441,9 @@ export function LiveVoicePage({ onLeave }: Props) {
         <span className="text-xs text-text-tertiary">{state.conversationHistory.length} turns</span>
       </div>
 
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(360px,520px)_minmax(0,1fr)]">
       {/* Orb card */}
-      <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-4 shadow-[0_10px_40px_rgba(0,0,0,0.08)]">
+      <div className="rounded-2xl border border-border bg-gradient-to-b from-surface-card to-elevated p-3 shadow-[0_10px_30px_rgba(0,0,0,0.08)] sm:p-4">
         {/* Orb — tap to interrupt while AI is speaking */}
         <div className="flex items-center justify-center">
           <motion.button
@@ -516,9 +517,10 @@ export function LiveVoicePage({ onLeave }: Props) {
           </p>
         )}
       </div>
+      </div>
 
       {/* Bottom controls */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <button
           type="button"
           onClick={onLeave}

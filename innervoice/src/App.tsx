@@ -300,7 +300,7 @@ export default function App() {
         }}
       />
 
-      <main className="relative z-10 mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:max-w-2xl">
+      <main className="relative z-10 mx-auto flex h-dvh w-full max-w-[1600px] flex-col overflow-hidden px-3 py-2 sm:px-4 sm:py-3 lg:px-6">
         <Navbar
           step={step}
           hasHistory={conversations.length > 0}
@@ -309,7 +309,7 @@ export default function App() {
           onOpenProfile={() => setShowProfile(true)}
         />
 
-        <div className="mb-3 flex min-h-6 flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
+        <div className="mb-2 flex min-h-5 flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
           <div className="flex min-w-0 items-center gap-2">
             {demoMode && (
               <span className="shrink-0 rounded-full border border-danger/40 bg-danger-soft px-2 py-0.5 text-danger">
@@ -321,7 +321,7 @@ export default function App() {
         </div>
 
         {visibleError && (
-          <div className="mb-4 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
+          <div className="mb-2 rounded-xl border border-danger/40 bg-danger-soft p-2.5 text-sm text-danger">
             <div className="flex items-start justify-between gap-2">
               <p>{visibleError}</p>
               <button
@@ -341,7 +341,7 @@ export default function App() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="glass-panel glow-accent min-h-0 flex-1 overflow-hidden rounded-2xl border border-border p-3 shadow-sm sm:p-4"
+          className="glass-panel glow-accent min-h-0 flex-1 overflow-hidden rounded-2xl border border-border p-3 shadow-sm sm:p-4 lg:p-5"
         >
           {step === 'auth' && <AuthScreen />}
           {step === 'home' && (
@@ -383,8 +383,8 @@ export default function App() {
           )}
         </motion.section>
 
-        {step !== 'live' && (
-        <footer className="mt-3 shrink-0 flex flex-col gap-3 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
+        {step === 'chat' && (
+        <footer className="mt-2 shrink-0 flex flex-col gap-2 text-xs text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
           <p className="inline-flex items-center gap-1">
             <Sparkles size={12} className="text-accent" /> Powered by OpenAI + ElevenLabs
           </p>

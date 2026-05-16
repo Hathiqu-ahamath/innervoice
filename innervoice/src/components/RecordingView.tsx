@@ -113,9 +113,9 @@ export function RecordingView({ onUseRecording }: Props) {
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="flex flex-col gap-4 sm:gap-5"
+      className="flex h-full min-h-0 flex-col gap-3 sm:gap-4 lg:grid lg:grid-cols-[minmax(320px,1.1fr)_minmax(300px,0.9fr)] lg:gap-4"
     >
-      <div className="text-center">
+      <div className="text-center lg:col-span-2">
         <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-text-primary">
           <BookOpen size={18} className="text-accent" />
           Voice Training
@@ -125,7 +125,7 @@ export function RecordingView({ onUseRecording }: Props) {
         </p>
       </div>
 
-      <div className="glass-panel max-h-[32dvh] min-h-[150px] overflow-y-auto rounded-2xl border border-border p-3 text-sm leading-relaxed text-text-secondary sm:max-h-[230px] sm:p-4">
+      <div className="glass-panel min-h-[140px] overflow-y-auto rounded-2xl border border-border p-3 text-sm leading-relaxed text-text-secondary sm:p-4 lg:min-h-0 lg:max-h-none">
         {TRAINING_PASSAGE.split('\n\n').map((paragraph, idx) => (
           <p key={idx} className={idx === 0 ? '' : 'mt-3'}>
             {paragraph}
@@ -133,7 +133,7 @@ export function RecordingView({ onUseRecording }: Props) {
         ))}
       </div>
 
-      <div className="flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center justify-center gap-3">
         <button
           type="button"
           aria-label="Start or stop recording"
@@ -178,7 +178,7 @@ export function RecordingView({ onUseRecording }: Props) {
       )}
 
       {audioUrl && (
-        <div className="glass-panel flex w-full flex-col gap-3 rounded-2xl border border-border p-3">
+        <div className="glass-panel flex w-full flex-col gap-3 rounded-2xl border border-border p-3 lg:col-span-2">
           <audio controls src={audioUrl} className="w-full" />
           {tooShortHint && !previewMeetsMin && (
             <p className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">

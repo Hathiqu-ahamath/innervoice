@@ -68,8 +68,8 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
   }
 
   return (
-    <nav className="glass-panel sticky top-2 z-30 mb-3 rounded-2xl border border-border px-3 py-2.5 shadow-sm sm:mb-4">
-      <div className="flex min-w-0 items-center gap-2">
+    <nav className="glass-panel sticky top-2 z-30 mb-2 rounded-2xl border border-border px-3 py-2.5 shadow-sm sm:mb-3 sm:flex sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-2 sm:flex-1">
         {isAuthenticated && user ? (
           <button
             type="button"
@@ -104,7 +104,7 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProf
         </div>
       </div>
 
-      <div className="mt-2 hidden w-full items-center gap-1.5 overflow-visible sm:flex sm:flex-wrap sm:justify-end">
+      <div className="mt-2 hidden w-full items-center gap-1.5 overflow-visible sm:mt-0 sm:ml-3 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
         {!isAuthenticated && (
           <NavButton
             label="Register"

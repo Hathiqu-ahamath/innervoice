@@ -37,7 +37,7 @@ export function AuthScreen() {
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="mx-auto flex min-h-[calc(100dvh-190px)] w-full max-w-sm flex-col items-center justify-center gap-4 py-3 sm:min-h-[420px] sm:gap-5 sm:py-0"
+      className="mx-auto flex h-full min-h-0 w-full max-w-sm flex-col items-center justify-center gap-3 py-1 sm:gap-4 sm:py-0"
     >
       <div className="glow-accent flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-white sm:h-16 sm:w-16">
         <AudioLines size={22} />
