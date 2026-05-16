@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Mic, MicOff, PhoneOff, Radio, Volume2 } from 'lucide-react'
+import { Mic, MicOff, PhoneOff, Radio, Volume2, X } from 'lucide-react'
 import { useAuth } from '../../AuthContext'
 import { useLiveConversation } from './useLiveConversation'
 import { useVoiceInput } from './useVoiceInput'
@@ -8,21 +8,36 @@ import { useVoiceOutput } from './useVoiceOutput'
 
 const SILENCE_AUTO_CLOSE_MS = 18000
 
-function AudioPulse({ active }: { active: boolean }) {
+function LevelBars({ level }: { level: number }) {
+  const bars = [0.4, 0.7, 1, 0.7, 0.4]
   return (
-    <div className="flex h-8 items-end justify-center gap-1">
-      {[0, 1, 2, 3, 4].map((index) => (
-        <motion.span
-          key={index}
-          className="w-1.5 rounded-full bg-accent"
-          animate={
-            active
-              ? { height: [6, 20 + (index % 2) * 6, 10, 22 - (index % 2) * 5, 6], opacity: [0.5, 1, 0.65, 1, 0.5] }
-              : { height: 6, opacity: 0.4 }
-          }
-          transition={{ duration: 0.8, repeat: Infinity, delay: index * 0.08, ease: 'easeInOut' }}
-        />
-      ))}
+    <div className="flex h-12 items-end justify-center gap-1.5">
+      {bars.map((weight, index) => {
+        const height = Math.max(8, Math.min(42, 8 + level * 34 * weight))
+        return (
+          <motion.span
+            key={index}
+            className="w-2 rounded-full bg-accent"
+            animate={{ height, opacity: 0.45 + Math.min(0.5, level * 0.8) }}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function AudioPulse({ inputLevel, outputLevel, active }: { inputLevel: number; outputLevel: number; active: boolean }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="rounded-xl border border-border bg-surface-card p-2">
+        <p className="mb-1 text-center text-[11px] text-text-secondary">Input</p>
+        <LevelBars level={active ? inputLevel : 0} />
+      </div>
+      <div className="rounded-xl border border-border bg-surface-card p-2">
+        <p className="mb-1 text-center text-[11px] text-text-secondary">Output</p>
+        <LevelBars level={active ? outputLevel : 0} />
+      </div>
     </div>
   )
 }
@@ -33,11 +48,16 @@ export function LiveVoiceController() {
   const [isLiveMode, setIsLiveMode] = useState(false)
   const [latestReply, setLatestReply] = useState('')
   const [statusDetail, setStatusDetail] = useState('Tap the mic to start live mode.')
+  const [inputLevel, setInputLevel] = useState(0)
   const liveModeRef = useRef(false)
   const lastActivityAtRef = useRef(Date.now())
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const micContextRef = useRef<AudioContext | null>(null)
+  const micAnalyserRef = useRef<AnalyserNode | null>(null)
+  const micMeterRafRef = useRef<number | null>(null)
 
   const { state, processUserTurn, resetConversation } = useLiveConversation()
-  const { isSpeaking, speak, stopSpeaking } = useVoiceOutput()
+  const { isSpeaking, outputLevel, speak, stopSpeaking } = useVoiceOutput()
 
   const { isSupported, isListening, transcript, startListening, stopListening } = useVoiceInput({
     onSpeechStart: () => {
@@ -79,6 +99,77 @@ export function LiveVoiceController() {
 
   useEffect(() => {
     liveModeRef.current = isLiveMode
+  }, [isLiveMode])
+
+  useEffect(() => {
+    const stopInputMeter = () => {
+      if (micMeterRafRef.current !== null) {
+        cancelAnimationFrame(micMeterRafRef.current)
+        micMeterRafRef.current = null
+      }
+      if (micAnalyserRef.current) {
+        try {
+          micAnalyserRef.current.disconnect()
+        } catch {
+          // noop
+        }
+        micAnalyserRef.current = null
+      }
+      if (micContextRef.current) {
+        void micContextRef.current.close().catch(() => {})
+        micContextRef.current = null
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop())
+        micStreamRef.current = null
+      }
+      setInputLevel(0)
+    }
+
+    if (!isLiveMode || !navigator.mediaDevices?.getUserMedia) {
+      stopInputMeter()
+      return
+    }
+
+    let cancelled = false
+    void navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
+        micStreamRef.current = stream
+        const context = new AudioContext()
+        const analyser = context.createAnalyser()
+        analyser.fftSize = 128
+        const source = context.createMediaStreamSource(stream)
+        source.connect(analyser)
+        micContextRef.current = context
+        micAnalyserRef.current = analyser
+        const data = new Uint8Array(analyser.frequencyBinCount)
+        const tick = () => {
+          if (!micAnalyserRef.current) return
+          analyser.getByteTimeDomainData(data)
+          let sum = 0
+          for (let i = 0; i < data.length; i += 1) {
+            const n = (data[i] - 128) / 128
+            sum += n * n
+          }
+          const rms = Math.sqrt(sum / data.length)
+          setInputLevel(Math.min(1, rms * 5))
+          micMeterRafRef.current = requestAnimationFrame(tick)
+        }
+        micMeterRafRef.current = requestAnimationFrame(tick)
+      })
+      .catch(() => {
+        setInputLevel(0)
+      })
+
+    return () => {
+      cancelled = true
+      stopInputMeter()
+    }
   }, [isLiveMode])
 
   useEffect(() => {
@@ -144,59 +235,75 @@ export function LiveVoiceController() {
       <AnimatePresence>
         {isLiveMode && (
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 280, damping: 24 }}
-            className="glass-panel fixed bottom-24 right-4 z-[60] w-[min(92vw,360px)] rounded-2xl border border-border p-3 shadow-xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[70] flex bg-overlay/95"
           >
-            <div className="mb-2 flex items-center justify-between text-xs text-text-secondary">
-              <span className="inline-flex items-center gap-1.5">
-                <Radio size={12} className="text-accent" />
-                Live Voice Mode
-              </span>
-              <span>{status}</span>
-            </div>
+            <div className="glass-panel relative flex min-h-full w-full flex-col border-border">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <span className="inline-flex items-center gap-2 text-sm text-text-secondary">
+                  <Radio size={14} className="text-accent" />
+                  Live Voice Mode
+                </span>
+                <button
+                  type="button"
+                  aria-label="Close live voice mode"
+                  onClick={endAndReset}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-elevated text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+                >
+                  <X size={16} />
+                </button>
+              </div>
 
-            <div className="mb-2 rounded-xl border border-border bg-elevated p-2">
-              <AudioPulse active={isListening || state.isProcessing || isSpeaking} />
-              <p className="mt-1 text-center text-[11px] text-text-secondary">{statusDetail}</p>
-            </div>
+              <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-5 py-6">
+                <div className="rounded-2xl border border-border bg-elevated p-4">
+                  <AudioPulse
+                    inputLevel={inputLevel}
+                    outputLevel={outputLevel}
+                    active={isListening || state.isProcessing || isSpeaking}
+                  />
+                  <p className="mt-3 text-center text-sm text-text-secondary">{statusDetail}</p>
+                  <p className="mt-1 text-center text-xs text-text-tertiary">{status}</p>
+                </div>
 
-            {!voiceId && (
-              <p className="mb-2 rounded-lg border border-danger/40 bg-danger-soft px-2 py-1 text-xs text-danger">
-                No cloned voice found. Live mode will use browser speech output.
-              </p>
-            )}
+                {!voiceId && (
+                  <p className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
+                    No cloned voice found. Live mode will use browser speech output.
+                  </p>
+                )}
 
-            {transcript && (
-              <p className="mb-2 rounded-lg border border-border bg-elevated px-2 py-1 text-xs text-text-primary">
-                You: {transcript}
-              </p>
-            )}
+                {transcript && (
+                  <p className="rounded-xl border border-border bg-surface-card px-3 py-2 text-sm text-text-primary">
+                    You: {transcript}
+                  </p>
+                )}
 
-            {latestReply && (
-              <p className="mb-2 rounded-lg border border-border bg-assistant-bubble px-2 py-1 text-xs text-text-primary">
-                Future self: {latestReply}
-              </p>
-            )}
+                {latestReply && (
+                  <p className="rounded-xl border border-border bg-assistant-bubble px-3 py-2 text-sm text-text-primary">
+                    Future self: {latestReply}
+                  </p>
+                )}
 
-            {state.lastError && (
-              <p className="mb-2 rounded-lg border border-danger/40 bg-danger-soft px-2 py-1 text-xs text-danger">
-                {state.lastError}
-              </p>
-            )}
+                {state.lastError && (
+                  <p className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
+                    {state.lastError}
+                  </p>
+                )}
 
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] text-text-tertiary">{state.conversationHistory.length} turns in memory</span>
-              <button
-                type="button"
-                onClick={endAndReset}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-2 py-1 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
-              >
-                <PhoneOff size={12} />
-                End
-              </button>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-tertiary">{state.conversationHistory.length} turns in memory</span>
+                  <button
+                    type="button"
+                    onClick={endAndReset}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1.5 text-xs text-text-secondary transition hover:border-accent/60 hover:text-text-primary"
+                  >
+                    <PhoneOff size={12} />
+                    End Session
+                  </button>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}
