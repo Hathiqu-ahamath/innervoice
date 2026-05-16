@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { Emotion, Message } from '../../types'
 import { createAssistantMessage, createUserMessage } from './voiceService'
-import { resetRealtimeBrain } from './realtimeBrain'
 
 export interface LiveConversationState {
   isProcessing: boolean
@@ -29,8 +28,6 @@ export function useLiveConversation() {
       try {
         const userMessage = createUserMessage(trimmed)
         const baseHistory = [...conversationHistory, userMessage]
-        // Wider window so the future self remembers the arc of the
-        // conversation, not just the last two exchanges.
         const liveContext = baseHistory.slice(-14)
         const assistant = await createAssistantMessage(liveContext)
         const nextHistory = [...baseHistory, assistant.raw]
@@ -54,23 +51,12 @@ export function useLiveConversation() {
     setConversationHistory([])
     setLastError(null)
     setIsProcessing(false)
-    // Drop the persistent realtime WS so the future-self starts a clean
-    // conversation next session.
-    resetRealtimeBrain()
   }, [])
 
   const state: LiveConversationState = useMemo(
-    () => ({
-      isProcessing,
-      lastError,
-      conversationHistory,
-    }),
+    () => ({ isProcessing, lastError, conversationHistory }),
     [conversationHistory, isProcessing, lastError],
   )
 
-  return {
-    state,
-    processUserTurn,
-    resetConversation,
-  }
+  return { state, processUserTurn, resetConversation }
 }

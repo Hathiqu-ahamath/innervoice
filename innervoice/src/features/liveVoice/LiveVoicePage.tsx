@@ -17,8 +17,8 @@ const FILLER_DELAY_MS = 700
 const SILENT_CAPTURE_LIMIT = 3
 const STICKY_STATUS_MS = 3500
 
-const GREETING_TEXT = '[warm] Hey. [short pause] I am right here. Whenever you are ready, talk to me.'
-const GREETING_DISPLAY = "Hey. I'm right here. Whenever you're ready, talk to me."
+const GREETING_TEXT = '[warm] Hey.'
+const GREETING_DISPLAY = 'Hey.'
 
 const THINKING_FILLERS = [
   { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
