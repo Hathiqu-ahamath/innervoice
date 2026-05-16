@@ -8,7 +8,7 @@ interface SpeechRecognitionAlt {
   onend: (() => void) | null
   onspeechstart: (() => void) | null
   onresult: ((event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null
-  onerror: (() => void) | null
+  onerror: ((event: { error?: string }) => void) | null
   start: () => void
   stop: () => void
 }
@@ -26,9 +26,17 @@ interface UseVoiceInputOptions {
   onFinalTranscript: (text: string) => void
   onSpeechStart?: () => void
   onActivity?: () => void
+  onError?: (message: string) => void
+  autoRestart?: boolean
 }
 
-export function useVoiceInput({ onFinalTranscript, onSpeechStart, onActivity }: UseVoiceInputOptions) {
+export function useVoiceInput({
+  onFinalTranscript,
+  onSpeechStart,
+  onActivity,
+  onError,
+  autoRestart = false,
+}: UseVoiceInputOptions) {
   const recognitionRef = useRef<SpeechRecognitionAlt | null>(null)
   const [isSupported, setIsSupported] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -42,10 +50,21 @@ export function useVoiceInput({ onFinalTranscript, onSpeechStart, onActivity }: 
     const recognition: SpeechRecognitionAlt = new ctor()
     recognition.continuous = true
     recognition.interimResults = true
-    recognition.lang = 'en-US'
+    recognition.lang = navigator.language || 'en-US'
 
     recognition.onstart = () => setIsListening(true)
-    recognition.onend = () => setIsListening(false)
+    recognition.onend = () => {
+      setIsListening(false)
+      if (autoRestart && !manualStopRef.current) {
+        setTimeout(() => {
+          try {
+            recognition.start()
+          } catch {
+            // noop
+          }
+        }, 180)
+      }
+    }
     recognition.onspeechstart = () => {
       onSpeechStart?.()
       onActivity?.()
@@ -72,7 +91,15 @@ export function useVoiceInput({ onFinalTranscript, onSpeechStart, onActivity }: 
       }
     }
 
-    recognition.onerror = () => {
+    recognition.onerror = (event: { error?: string }) => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        manualStopRef.current = true
+        onError?.('Microphone permission is blocked for live mode.')
+      } else if (event.error === 'network') {
+        onError?.('Speech recognition network issue. Trying again...')
+      } else if (event.error === 'no-speech') {
+        onError?.('No speech detected. Keep speaking naturally...')
+      }
       if (!manualStopRef.current) {
         setIsListening(false)
       }
@@ -84,7 +111,7 @@ export function useVoiceInput({ onFinalTranscript, onSpeechStart, onActivity }: 
       recognition.stop()
       recognitionRef.current = null
     }
-  }, [onActivity, onFinalTranscript, onSpeechStart])
+  }, [autoRestart, onActivity, onError, onFinalTranscript, onSpeechStart])
 
   const startListening = useCallback(() => {
     const recognition = recognitionRef.current

@@ -41,6 +41,26 @@ function LiveOrb({ level, active }: { level: number; active: boolean }) {
   )
 }
 
+function WaveStrip({ level, active }: { level: number; active: boolean }) {
+  const points = 48
+  return (
+    <div className="mt-4 flex h-10 items-center justify-center gap-1">
+      {Array.from({ length: points }).map((_, i) => {
+        const wave = Math.sin(i / 4) * 0.5 + 0.5
+        const height = active ? 4 + Math.max(2, level * 24 * wave) : 4
+        return (
+          <motion.span
+            key={i}
+            className="w-[3px] rounded-full bg-accent/80"
+            animate={{ height, opacity: active ? 0.55 + wave * 0.35 : 0.35 }}
+            transition={{ duration: 0.1, ease: 'easeOut' }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 export function LiveVoiceController() {
   const { user } = useAuth()
   const voiceId = user?.voiceId ?? null
@@ -69,6 +89,8 @@ export function LiveVoiceController() {
     onActivity: () => {
       lastActivityAtRef.current = Date.now()
     },
+    onError: (message) => setStatusDetail(message),
+    autoRestart: true,
     onFinalTranscript: async (finalText) => {
       if (!liveModeRef.current) return
       lastActivityAtRef.current = Date.now()
@@ -265,6 +287,7 @@ export function LiveVoiceController() {
               <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-5 py-6">
                 <div className="rounded-2xl border border-border bg-elevated p-4">
                   <LiveOrb level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
+                  <WaveStrip level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <p className="mt-3 text-center text-sm text-text-secondary">{statusDetail}</p>
                   <p className="mt-1 text-center text-xs text-text-tertiary">{status}</p>
                 </div>
@@ -277,12 +300,24 @@ export function LiveVoiceController() {
 
                 <div className="rounded-2xl border border-border bg-surface-card p-3">
                   <p className="text-xs font-medium text-text-tertiary">Captions</p>
-                  <p className="mt-2 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary">
-                    <span className="mr-2 text-xs text-text-tertiary">Me:</span>
+                  <p
+                    className={`mt-2 rounded-lg border px-3 py-2 text-sm text-text-primary transition ${
+                      isListening
+                        ? 'border-accent/60 bg-accent-soft'
+                        : 'border-border bg-elevated'
+                    }`}
+                  >
+                    <span className="mr-2 text-xs text-text-tertiary">{isListening ? 'Me (listening):' : 'Me:'}</span>
                     {transcript || lastUserCaption || '...'}
                   </p>
-                  <p className="mt-2 rounded-lg border border-border bg-assistant-bubble px-3 py-2 text-sm text-text-primary">
-                    <span className="mr-2 text-xs text-text-tertiary">You:</span>
+                  <p
+                    className={`mt-2 rounded-lg border px-3 py-2 text-sm text-text-primary transition ${
+                      isSpeaking
+                        ? 'border-accent/60 bg-accent-soft'
+                        : 'border-border bg-assistant-bubble'
+                    }`}
+                  >
+                    <span className="mr-2 text-xs text-text-tertiary">{isSpeaking ? 'You (speaking):' : 'You:'}</span>
                     {latestReply || '...'}
                   </p>
                 </div>
