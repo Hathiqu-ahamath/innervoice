@@ -8,36 +8,35 @@ import { useVoiceOutput } from './useVoiceOutput'
 
 const SILENCE_AUTO_CLOSE_MS = 18000
 
-function LevelBars({ level }: { level: number }) {
-  const bars = [0.4, 0.7, 1, 0.7, 0.4]
+function LiveOrb({ level, active }: { level: number; active: boolean }) {
+  const scale = 0.96 + Math.min(0.28, level * 0.3)
+  const glow = 0.16 + Math.min(0.52, level * 0.58)
   return (
-    <div className="flex h-12 items-end justify-center gap-1.5">
-      {bars.map((weight, index) => {
-        const height = Math.max(8, Math.min(42, 8 + level * 34 * weight))
-        return (
-          <motion.span
-            key={index}
-            className="w-2 rounded-full bg-accent"
-            animate={{ height, opacity: 0.45 + Math.min(0.5, level * 0.8) }}
-            transition={{ duration: 0.12, ease: 'easeOut' }}
-          />
-        )
-      })}
-    </div>
-  )
-}
-
-function AudioPulse({ inputLevel, outputLevel, active }: { inputLevel: number; outputLevel: number; active: boolean }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-xl border border-border bg-surface-card p-2">
-        <p className="mb-1 text-center text-[11px] text-text-secondary">Input</p>
-        <LevelBars level={active ? inputLevel : 0} />
-      </div>
-      <div className="rounded-xl border border-border bg-surface-card p-2">
-        <p className="mb-1 text-center text-[11px] text-text-secondary">Output</p>
-        <LevelBars level={active ? outputLevel : 0} />
-      </div>
+    <div className="relative mx-auto flex h-48 w-48 items-center justify-center sm:h-56 sm:w-56">
+      {[0, 1, 2].map((ring) => (
+        <motion.span
+          key={ring}
+          className="absolute inset-0 rounded-full border border-accent/35"
+          animate={
+            active
+              ? { scale: [1, 1.12 + ring * 0.06, 1], opacity: [0.48, 0.15, 0.48] }
+              : { scale: 1, opacity: 0.2 }
+          }
+          transition={{
+            duration: 1.8 + ring * 0.24,
+            repeat: Infinity,
+            ease: 'easeInOut',
+            delay: ring * 0.18,
+          }}
+        />
+      ))}
+      <motion.div
+        className="relative flex h-28 w-28 items-center justify-center rounded-full border border-accent/40 bg-accent-soft sm:h-32 sm:w-32"
+        animate={{ scale, boxShadow: `0 0 ${20 + level * 42}px rgb(95 143 139 / ${glow.toFixed(2)})` }}
+        transition={{ duration: 0.12, ease: 'easeOut' }}
+      >
+        <div className="h-6 w-6 rounded-full bg-accent" />
+      </motion.div>
     </div>
   )
 }
@@ -47,6 +46,7 @@ export function LiveVoiceController() {
   const voiceId = user?.voiceId ?? null
   const [isLiveMode, setIsLiveMode] = useState(false)
   const [latestReply, setLatestReply] = useState('')
+  const [lastUserCaption, setLastUserCaption] = useState('')
   const [statusDetail, setStatusDetail] = useState('Tap the mic to start live mode.')
   const [inputLevel, setInputLevel] = useState(0)
   const liveModeRef = useRef(false)
@@ -73,6 +73,7 @@ export function LiveVoiceController() {
       if (!liveModeRef.current) return
       lastActivityAtRef.current = Date.now()
       setStatusDetail('Processing...')
+      setLastUserCaption(finalText)
       stopListening()
       const turn = await processUserTurn(finalText)
       if (!turn) {
@@ -186,6 +187,7 @@ export function LiveVoiceController() {
           stopSpeaking()
           setIsLiveMode(false)
           setLatestReply('')
+          setLastUserCaption('')
           resetConversation()
           setStatusDetail('Tap the mic to start live mode.')
         }, 450)
@@ -211,6 +213,7 @@ export function LiveVoiceController() {
   const endAndReset = useCallback(() => {
     stopLiveMode()
     setLatestReply('')
+    setLastUserCaption('')
     resetConversation()
   }, [resetConversation, stopLiveMode])
 
@@ -229,6 +232,8 @@ export function LiveVoiceController() {
     else if (isListening) setStatusDetail('Listening...')
     else setStatusDetail('Ready')
   }, [isLiveMode, isListening, isSpeaking, state.isProcessing])
+
+  const combinedLevel = useMemo(() => Math.max(inputLevel * 0.9, outputLevel), [inputLevel, outputLevel])
 
   return (
     <>
@@ -259,11 +264,7 @@ export function LiveVoiceController() {
 
               <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-5 py-6">
                 <div className="rounded-2xl border border-border bg-elevated p-4">
-                  <AudioPulse
-                    inputLevel={inputLevel}
-                    outputLevel={outputLevel}
-                    active={isListening || state.isProcessing || isSpeaking}
-                  />
+                  <LiveOrb level={combinedLevel} active={isListening || state.isProcessing || isSpeaking} />
                   <p className="mt-3 text-center text-sm text-text-secondary">{statusDetail}</p>
                   <p className="mt-1 text-center text-xs text-text-tertiary">{status}</p>
                 </div>
@@ -274,17 +275,17 @@ export function LiveVoiceController() {
                   </p>
                 )}
 
-                {transcript && (
-                  <p className="rounded-xl border border-border bg-surface-card px-3 py-2 text-sm text-text-primary">
-                    You: {transcript}
+                <div className="rounded-2xl border border-border bg-surface-card p-3">
+                  <p className="text-xs font-medium text-text-tertiary">Captions</p>
+                  <p className="mt-2 rounded-lg border border-border bg-elevated px-3 py-2 text-sm text-text-primary">
+                    <span className="mr-2 text-xs text-text-tertiary">Me:</span>
+                    {transcript || lastUserCaption || '...'}
                   </p>
-                )}
-
-                {latestReply && (
-                  <p className="rounded-xl border border-border bg-assistant-bubble px-3 py-2 text-sm text-text-primary">
-                    Future self: {latestReply}
+                  <p className="mt-2 rounded-lg border border-border bg-assistant-bubble px-3 py-2 text-sm text-text-primary">
+                    <span className="mr-2 text-xs text-text-tertiary">You:</span>
+                    {latestReply || '...'}
                   </p>
-                )}
+                </div>
 
                 {state.lastError && (
                   <p className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
