@@ -376,6 +376,7 @@ export default function App() {
               thinkingLabel={thinkingLabel}
               onSend={handleSendMessage}
               onOpenLive={() => navigate('live')}
+              userName={user?.name}
             />
           )}
           {step === 'live' && (
