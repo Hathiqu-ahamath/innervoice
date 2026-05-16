@@ -92,13 +92,14 @@ export default function App() {
         timestamp: Date.now(),
         emotion: detectEmotion(text),
       }
+      const userEmotion = userMessage.emotion ?? 'neutral'
       const updatedMessages = [...messages, userMessage]
       setMessages(updatedMessages)
       setIsProcessing(true)
       setError(null)
       try {
         const responseText = await getFutureSelfResponse(updatedMessages)
-        const audioBlob = await textToSpeech(responseText, voiceId)
+        const audioBlob = await textToSpeech(responseText, voiceId, userEmotion)
         const assistantMessage: Message = {
           id: crypto.randomUUID(),
           role: 'assistant',

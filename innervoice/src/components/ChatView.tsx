@@ -26,10 +26,16 @@ function VisualBars({ levels }: { levels: number[] }) {
 
 export function ChatView({ messages, isProcessing, onSend }: Props) {
   const [input, setInput] = useState('')
+  const [voiceModeEnabled, setVoiceModeEnabled] = useState(true)
+  const [assistantSpeaking, setAssistantSpeaking] = useState(false)
   const logRef = useRef<HTMLDivElement | null>(null)
   const { levels, connect } = useAudioVisualizer()
   const maxChars = 1000
   const remaining = maxChars - input.length
+  const lastAssistantMessageId = useMemo(
+    () => [...messages].reverse().find((message) => message.role === 'assistant')?.id,
+    [messages],
+  )
 
   useEffect(() => {
     if (logRef.current) {
@@ -50,8 +56,21 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
     <div className="flex h-[60vh] min-h-[300px] max-h-[600px] flex-col gap-4">
       <header>
         <h2 className="text-lg font-semibold text-text-primary">Your Future Self is Here</h2>
-        <p className="text-sm text-text-secondary">Speak your mind - hear their voice.</p>
+        <p className="text-sm text-text-secondary">Voice-to-voice is active by default. You can still type anytime.</p>
       </header>
+
+      <div className="flex items-center justify-between rounded-xl border border-border bg-surface p-3">
+        <p className="text-xs text-text-secondary">
+          {voiceModeEnabled ? 'Voice-to-voice mode is ON' : 'Voice mode is OFF (type or tap mic)'}
+        </p>
+        <button
+          type="button"
+          onClick={() => setVoiceModeEnabled((prev) => !prev)}
+          className="rounded-full border border-border px-3 py-1 text-xs text-text-secondary"
+        >
+          {voiceModeEnabled ? 'Disable Voice Mode' : 'Enable Voice Mode'}
+        </button>
+      </div>
 
       <div ref={logRef} role="log" aria-live="polite" className="flex-1 space-y-3 overflow-y-auto rounded-2xl border border-border p-3">
         {messages.length === 0 && (
@@ -71,7 +90,13 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
               <p className="mt-1 text-xs italic text-text-tertiary">Emotion: {message.emotion}</p>
             )}
             {message.audioUrl && (
-              <AudioBubble audioUrl={message.audioUrl} onConnect={connect} levels={levels} />
+              <AudioBubble
+                audioUrl={message.audioUrl}
+                onConnect={connect}
+                levels={levels}
+                autoPlay={voiceModeEnabled && lastAssistantMessageId === message.id}
+                onSpeakingChange={setAssistantSpeaking}
+              />
             )}
           </div>
         ))}
@@ -84,7 +109,14 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
 
       <div className="flex items-end gap-2">
         <VoiceInput
+          disabled={isProcessing || assistantSpeaking}
+          keepListening={voiceModeEnabled}
           onTranscript={(text) => {
+            if (!text.trim()) return
+            if (voiceModeEnabled && !isProcessing && !assistantSpeaking) {
+              onSend(text)
+              return
+            }
             setInput((prev) => `${prev} ${text}`.trim())
           }}
         />
@@ -122,13 +154,24 @@ function AudioBubble({
   audioUrl,
   onConnect,
   levels,
+  autoPlay,
+  onSpeakingChange,
 }: {
   audioUrl: string
   onConnect: (audio: HTMLAudioElement) => void
   levels: number[]
+  autoPlay?: boolean
+  onSpeakingChange?: (playing: boolean) => void
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
+
+  useEffect(() => {
+    if (!autoPlay) return
+    const element = audioRef.current
+    if (!element) return
+    void element.play().catch(() => {})
+  }, [autoPlay])
 
   return (
     <div className="mt-2 flex items-center">
@@ -137,10 +180,17 @@ function AudioBubble({
         src={audioUrl}
         onPlay={(event) => {
           setPlaying(true)
+          onSpeakingChange?.(true)
           onConnect(event.currentTarget)
         }}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onPause={() => {
+          setPlaying(false)
+          onSpeakingChange?.(false)
+        }}
+        onEnded={() => {
+          setPlaying(false)
+          onSpeakingChange?.(false)
+        }}
       />
       <button
         type="button"
