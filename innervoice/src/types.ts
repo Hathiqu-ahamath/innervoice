@@ -19,3 +19,5 @@ export interface Conversation {
   createdAt: number
   updatedAt: number
 }
+
+export type SyncStatus = 'local' | 'connecting' | 'synced' | 'error'

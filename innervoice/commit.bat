@@ -53,8 +53,7 @@ if errorlevel 1 (
   exit /b %ERRORLEVEL%
 )
 
-for /f "delims=" %%H in ('git rev-parse --short HEAD') do set "COMMIT_HASH=%%H"
-echo [commit] Created %%COMMIT_HASH%% — %COMMIT_MSG%
+for /f "delims=" %%H in ('git rev-parse --short HEAD') do echo [commit] Created %%H — %COMMIT_MSG%
 
 if "%NO_PUSH%"=="1" (
   echo [commit] Skipped push ^(--no-push^).
