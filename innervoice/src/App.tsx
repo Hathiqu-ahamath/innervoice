@@ -12,6 +12,7 @@ import { Navbar } from './components/Navbar'
 import { ProfilePanel } from './components/ProfilePanel'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { RecordingView } from './components/RecordingView'
+import { LiveVoiceController } from './features/liveVoice/LiveVoiceController'
 import { useConversations } from './hooks/useConversations'
 import type { AppStep, Message } from './types'
 
@@ -317,6 +318,7 @@ export default function App() {
           </div>
         </footer>
       </main>
+      <LiveVoiceController />
     </div>
   )
 }
