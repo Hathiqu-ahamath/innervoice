@@ -25,9 +25,10 @@ declare global {
 interface UseVoiceInputOptions {
   onFinalTranscript: (text: string) => void
   onSpeechStart?: () => void
+  onActivity?: () => void
 }
 
-export function useVoiceInput({ onFinalTranscript, onSpeechStart }: UseVoiceInputOptions) {
+export function useVoiceInput({ onFinalTranscript, onSpeechStart, onActivity }: UseVoiceInputOptions) {
   const recognitionRef = useRef<SpeechRecognitionAlt | null>(null)
   const [isSupported, setIsSupported] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -45,7 +46,10 @@ export function useVoiceInput({ onFinalTranscript, onSpeechStart }: UseVoiceInpu
 
     recognition.onstart = () => setIsListening(true)
     recognition.onend = () => setIsListening(false)
-    recognition.onspeechstart = () => onSpeechStart?.()
+    recognition.onspeechstart = () => {
+      onSpeechStart?.()
+      onActivity?.()
+    }
     recognition.onresult = (event) => {
       let interim = ''
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -53,13 +57,17 @@ export function useVoiceInput({ onFinalTranscript, onSpeechStart }: UseVoiceInpu
         const text = result[0]?.transcript ?? ''
         if (result.isFinal) {
           const finalText = text.trim()
-          if (finalText) onFinalTranscript(finalText)
+          if (finalText) {
+            onActivity?.()
+            onFinalTranscript(finalText)
+          }
           setTranscript('')
         } else {
           interim += text
         }
       }
       if (interim) {
+        onActivity?.()
         setTranscript(interim.trim())
       }
     }
@@ -76,7 +84,7 @@ export function useVoiceInput({ onFinalTranscript, onSpeechStart }: UseVoiceInpu
       recognition.stop()
       recognitionRef.current = null
     }
-  }, [onFinalTranscript, onSpeechStart])
+  }, [onActivity, onFinalTranscript, onSpeechStart])
 
   const startListening = useCallback(() => {
     const recognition = recognitionRef.current

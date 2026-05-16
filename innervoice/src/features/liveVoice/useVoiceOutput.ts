@@ -6,6 +6,7 @@ interface SpeakInput {
   text: string
   emotion: Emotion
   voiceId: string | null
+  realtime?: boolean
 }
 
 export function useVoiceOutput() {
@@ -24,12 +25,12 @@ export function useVoiceOutput() {
   }, [])
 
   const speak = useCallback(
-    async ({ text, emotion, voiceId }: SpeakInput) => {
+    async ({ text, emotion, voiceId, realtime = false }: SpeakInput) => {
       stopSpeaking()
       setIsSpeaking(true)
 
       if (voiceId) {
-        const audioBlob = await textToSpeech(text, voiceId, emotion)
+        const audioBlob = await textToSpeech(text, voiceId, emotion, { realtime })
         await new Promise<void>((resolve) => {
           const audio = new Audio(URL.createObjectURL(audioBlob))
           audioRef.current = audio

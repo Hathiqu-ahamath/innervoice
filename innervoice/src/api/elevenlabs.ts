@@ -5,7 +5,8 @@ const ELEVENLABS_KEY =
   (import.meta.env.VITE_ELEVENLABS_API_KEY as string | undefined) ||
   (import.meta.env.ELEVENLABS_API_KEY as string | undefined)
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1'
-const OUTPUT_FORMAT = 'mp3_44100_128'
+const OUTPUT_FORMAT_DEFAULT = 'mp3_44100_128'
+const OUTPUT_FORMAT_REALTIME = 'mp3_22050_32'
 
 export type TtsBackend = 'dialogue_v3' | 'speech_v3' | 'speech_v2_fallback'
 
@@ -117,8 +118,9 @@ async function synthesizeDialogue(
   text: string,
   voiceId: string,
   stability: number,
+  outputFormat: string,
 ): Promise<Response> {
-  return fetch(`${ELEVENLABS_BASE_URL}/text-to-dialogue?output_format=${OUTPUT_FORMAT}`, {
+  return fetch(`${ELEVENLABS_BASE_URL}/text-to-dialogue?output_format=${outputFormat}`, {
     method: 'POST',
     headers: apiHeaders(),
     body: JSON.stringify({
@@ -135,8 +137,13 @@ async function synthesizeSpeechV3(
   text: string,
   voiceId: string,
   stability: number,
+  outputFormat: string,
+  optimizeForRealtime: boolean,
 ): Promise<Response> {
-  return fetch(`${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${OUTPUT_FORMAT}`, {
+  const latencyParam = optimizeForRealtime ? '&optimize_streaming_latency=3' : ''
+  return fetch(
+    `${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${outputFormat}${latencyParam}`,
+    {
     method: 'POST',
     headers: apiHeaders(),
     body: JSON.stringify({
@@ -151,11 +158,12 @@ async function synthesizeSpeechV3(
         speed: 1,
       },
     }),
-  })
+    },
+  )
 }
 
-async function synthesizeSpeechV2(text: string, voiceId: string): Promise<Response> {
-  return fetch(`${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${OUTPUT_FORMAT}`, {
+async function synthesizeSpeechV2(text: string, voiceId: string, outputFormat: string): Promise<Response> {
+  return fetch(`${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}?output_format=${outputFormat}`, {
     method: 'POST',
     headers: apiHeaders(),
     body: JSON.stringify({
@@ -171,7 +179,16 @@ async function synthesizeSpeechV2(text: string, voiceId: string): Promise<Respon
   })
 }
 
-export async function textToSpeech(text: string, voiceId: string, emotion: Emotion = 'neutral'): Promise<Blob> {
+interface TextToSpeechOptions {
+  realtime?: boolean
+}
+
+export async function textToSpeech(
+  text: string,
+  voiceId: string,
+  emotion: Emotion = 'neutral',
+  options: TextToSpeechOptions = {},
+): Promise<Blob> {
   requireKey()
 
   const taggedText = normalizeV3AudioTags(text)
@@ -180,8 +197,9 @@ export async function textToSpeech(text: string, voiceId: string, emotion: Emoti
   }
 
   const stability = getV3Stability(emotion)
+  const outputFormat = options.realtime ? OUTPUT_FORMAT_REALTIME : OUTPUT_FORMAT_DEFAULT
 
-  const dialogue = await synthesizeDialogue(taggedText, voiceId, stability)
+  const dialogue = await synthesizeDialogue(taggedText, voiceId, stability, outputFormat)
   if (dialogue.ok) {
     lastTtsBackend = 'dialogue_v3'
     return dialogue.blob()
@@ -191,7 +209,7 @@ export async function textToSpeech(text: string, voiceId: string, emotion: Emoti
     console.warn('[InnerVoice] text-to-dialogue failed:', dialogue.status, await readErrorSnippet(dialogue))
   }
 
-  const speechV3 = await synthesizeSpeechV3(taggedText, voiceId, stability)
+  const speechV3 = await synthesizeSpeechV3(taggedText, voiceId, stability, outputFormat, Boolean(options.realtime))
   if (speechV3.ok) {
     lastTtsBackend = 'speech_v3'
     return speechV3.blob()
@@ -201,7 +219,7 @@ export async function textToSpeech(text: string, voiceId: string, emotion: Emoti
     console.warn('[InnerVoice] eleven_v3 TTS failed:', speechV3.status, await readErrorSnippet(speechV3))
   }
 
-  const speechV2 = await synthesizeSpeechV2(taggedText, voiceId)
+  const speechV2 = await synthesizeSpeechV2(taggedText, voiceId, outputFormat)
   if (!speechV2.ok) {
     const detail = await readErrorSnippet(speechV2)
     throw new Error(
