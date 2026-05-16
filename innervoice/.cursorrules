@@ -1,23 +1,20 @@
-CRITICAL AUTO-COMMIT RULE
+# InnerVoice — Agent workflow
 
-After completing any code change, feature, fix, UI update, documentation update, configuration update, or other project file edit, immediately run the project commit script before ending the task.
+## Incremental commits (required)
 
-Use this workflow:
-1. Finish the requested change.
-2. Run relevant checks when practical.
-3. Immediately commit and push with:
+Commit **mid-process** after every completed milestone, then continue working.
 
-.\commit.bat "feat: describe what was just built"
+- **One error fixed** → `.\commit.bat "fix: ..."` → continue
+- **One feature slice** → `.\commit.bat "feat: ..."` → continue
+- **UI change** → `.\commit.bat "style: ..."` → continue
+- **Config/tooling** → `.\commit.bat "chore: ..."` → continue
 
-Use the correct commit prefix:
-- feat: for new features
-- fix: for bug fixes
-- style: for UI or visual changes
-- docs: for documentation and rule updates
-- chore: for tooling, config, dependency, or maintenance changes
+Do **not** wait until the entire multi-step task is finished. Do **not** combine unrelated fixes/features in one commit.
 
-Keep commit messages short and specific.
+Prefixes: `feat:` | `fix:` | `style:` | `docs:` | `chore:`
 
-Do not wait for the user to ask for the commit after code edits. Do not skip this step after a completed task. If the terminal is Command Prompt instead of PowerShell, commit.bat "message" is also acceptable.
+Run from `innervoice/` or repo root. Never commit `.env` or secrets.
 
-The commit script stages all changed files, adds the co-author trailer for Ahamath Hathiqu, commits as the configured local Git user, and pushes to origin main.
+## Checks
+
+Run `npm run lint` and/or `npm run build` when the change touches app code, before committing when practical.
