@@ -13,24 +13,38 @@ interface Props {
 }
 
 const SILENCE_AUTO_CLOSE_MS = 20000
-const FILLER_DELAY_MS = 700
+const FILLER_DELAY_MS = 220
+const SECOND_FILLER_DELAY_MS = 1800
 const SILENT_CAPTURE_LIMIT = 3
 const STICKY_STATUS_MS = 3500
 
 const GREETING_TEXT = '[warm] Hey.'
 const GREETING_DISPLAY = 'Hey.'
 
+// Tiny, natural fillers to mask latency. Short on purpose.
 const THINKING_FILLERS = [
-  { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
-  { display: 'Okay, I hear you.', spoken: '[softly] Okay, [short pause] I hear you.' },
-  { display: 'Yeah, give me a moment.', spoken: '[gentle exhale] Yeah, [short pause] give me a moment.' },
-  { display: 'Hmm, thinking...', spoken: '[thoughtful] Hmm, [short pause] thinking.' },
-  { display: 'Right, with you.', spoken: '[warm] Right, [short pause] with you.' },
-  { display: 'Mhm, just a sec.', spoken: '[softly] Mhm, [short pause] just a sec.' },
+  { display: 'Yhhh…',   spoken: '[thoughtful] Yhhh...' },
+  { display: 'Ummm…',   spoken: '[thoughtful] Ummm...' },
+  { display: 'Wellll…', spoken: '[softly] Wellll...' },
+  { display: 'Hmmm…',   spoken: '[thoughtful] Hmmm...' },
+  { display: 'Mhm…',    spoken: '[softly] Mhm...' },
+  { display: 'Mmm…',    spoken: '[softly] Mmm...' },
+  { display: 'Uh-huh…', spoken: '[warm] Uh-huh...' },
+  { display: 'Right…',  spoken: '[warm] Right...' },
+  { display: 'Okay…',   spoken: '[softly] Okay...' },
+  { display: 'Yeah…',   spoken: '[warm] Yeah...' },
 ]
 
-function pickFiller() {
-  return THINKING_FILLERS[Math.floor(Math.random() * THINKING_FILLERS.length)]
+// Second-pass fillers used only if the reply is taking a while.
+const SECOND_FILLERS = [
+  { display: 'Let me think…',   spoken: '[thoughtful] Let me think...' },
+  { display: 'Just a sec…',     spoken: '[softly] Just a sec...' },
+  { display: 'Hmm, one moment…',spoken: '[thoughtful] Hmm, one moment...' },
+  { display: 'Bear with me…',   spoken: '[softly] Bear with me...' },
+]
+
+function pickFrom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]
 }
 
 const BACKCHANNELS = new Set([
@@ -139,7 +153,8 @@ export function LiveVoicePage({ onLeave }: Props) {
       // Stop recording first — prevents echo pickup.
       stopListening()
       setStatusDetail('Speaking...')
-      await speak({ text: replyText, emotion: replyEmotion, voiceId, realtime: false })
+      // realtime=true => lower-bitrate MP3 + ElevenLabs streaming latency optimization
+      await speak({ text: replyText, emotion: replyEmotion, voiceId, realtime: true })
 
       // Restart mic after speaking, only if the session is still active.
       if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
@@ -205,21 +220,29 @@ export function LiveVoicePage({ onLeave }: Props) {
 
         const turnPromise = processUserTurn(combined)
 
-        const filler = pickFiller()
+        const firstFiller = pickFrom(THINKING_FILLERS)
+        const secondFiller = pickFrom(SECOND_FILLERS)
         let fillerSpeaking = false
-        const fillerTimer = window.setTimeout(async () => {
+        let turnArrived = false
+
+        const speakFiller = async (f: { display: string; spoken: string }) => {
           if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-          if (wasInterruptedRef.current) return
-          setStatusDetail(filler.display)
-          setLatestReply(filler.display)
+          if (wasInterruptedRef.current || turnArrived) return
+          setStatusDetail(f.display)
+          setLatestReply(f.display)
           fillerSpeaking = true
           stopListening()
-          await speak({ text: filler.spoken, emotion: 'neutral', voiceId, realtime: true }).catch(() => {})
+          await speak({ text: f.spoken, emotion: 'neutral', voiceId, realtime: true }).catch(() => {})
           fillerSpeaking = false
-        }, FILLER_DELAY_MS)
+        }
+
+        const fillerTimer = window.setTimeout(() => { void speakFiller(firstFiller) }, FILLER_DELAY_MS)
+        const secondFillerTimer = window.setTimeout(() => { void speakFiller(secondFiller) }, SECOND_FILLER_DELAY_MS)
 
         const turn = await turnPromise
+        turnArrived = true
         window.clearTimeout(fillerTimer)
+        window.clearTimeout(secondFillerTimer)
         if (fillerSpeaking) {
           stopSpeaking()
           fillerSpeaking = false

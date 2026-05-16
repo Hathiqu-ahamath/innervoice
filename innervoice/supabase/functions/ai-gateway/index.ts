@@ -154,22 +154,26 @@ async function textToSpeech(payload: {
     'xi-api-key': key,
   }
 
-  const dialogue = await fetch(`https://api.elevenlabs.io/v1/text-to-dialogue?output_format=${payload.outputFormat}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      inputs: [{ text: payload.text, voice_id: payload.voiceId }],
-      model_id: 'eleven_v3',
-      settings: { stability: payload.stability },
-      apply_text_normalization: 'off',
-    }),
-  })
-  if (dialogue.ok) {
-    const bytes = new Uint8Array(await dialogue.arrayBuffer())
-    return {
-      audioBase64: encodeBase64(bytes),
-      mimeType: dialogue.headers.get('content-type') ?? 'audio/mpeg',
-      backend: 'dialogue_v3',
+  // Realtime requests skip the slower dialogue_v3 endpoint and go straight to
+  // speech_v3 with `optimize_streaming_latency` for snappy fillers / live mode.
+  if (!payload.realtime) {
+    const dialogue = await fetch(`https://api.elevenlabs.io/v1/text-to-dialogue?output_format=${payload.outputFormat}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        inputs: [{ text: payload.text, voice_id: payload.voiceId }],
+        model_id: 'eleven_v3',
+        settings: { stability: payload.stability },
+        apply_text_normalization: 'off',
+      }),
+    })
+    if (dialogue.ok) {
+      const bytes = new Uint8Array(await dialogue.arrayBuffer())
+      return {
+        audioBase64: encodeBase64(bytes),
+        mimeType: dialogue.headers.get('content-type') ?? 'audio/mpeg',
+        backend: 'dialogue_v3',
+      }
     }
   }
 
