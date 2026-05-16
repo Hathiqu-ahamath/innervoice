@@ -19,7 +19,7 @@ const DUPLICATE_UTTERANCE_MS = 900
 const SILENT_CAPTURE_LIMIT = 3
 const STICKY_STATUS_MS = 3500
 
-const GREETING_TEXT = '[warm] Hey.'
+const GREETING_TEXT = 'Hey.'
 const GREETING_DISPLAY = 'Hey.'
 
 // Tiny, natural fillers to mask latency. Short on purpose.
@@ -172,7 +172,7 @@ export function LiveVoicePage({ onLeave }: Props) {
       pauseCapture()
       setStatusDetail('Speaking...')
       try {
-        await speak({ text: replyText, emotion: replyEmotion, voiceId, realtime: true })
+        await speak({ text: replyText, emotion: replyEmotion, voiceId, stable: true })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Voice output failed.'
         setStickyStatus(msg)
@@ -281,7 +281,7 @@ export function LiveVoicePage({ onLeave }: Props) {
         askedHelpRef.current = true
         const sessionId = sessionIdRef.current
         stopListening()
-        void speak({ text: '[softly] May I help you?', emotion: 'neutral', voiceId, realtime: false })
+        void speak({ text: 'May I help you?', emotion: 'neutral', voiceId, stable: true })
           .then(() => {
             if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
             lastActivityAtRef.current = Date.now()
@@ -317,22 +317,15 @@ export function LiveVoicePage({ onLeave }: Props) {
     lastHandledTranscriptRef.current = { text: '', at: 0 }
     silentCaptureCountRef.current = 0
     setLatestReply(GREETING_DISPLAY)
-    setStatusDetail('Speaking...')
+    setStatusDetail("I'm listening...")
 
     void (async () => {
-      try {
-        await speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, realtime: false })
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn('[live-voice] greeting failed', err)
-        setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
-      }
-      if (cancelled || !sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail('Opening microphone...')
       await startListening()
       if (cancelled || !sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      if (Date.now() < stickyStatusUntilRef.current) return
-      setStatusDetail("I'm listening...")
+      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, stable: true }).catch((err) => {
+        console.warn('[live-voice] greeting failed', err)
+        setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
+      })
     })()
 
     return () => {
@@ -367,15 +360,10 @@ export function LiveVoicePage({ onLeave }: Props) {
     setLatestReply(GREETING_DISPLAY)
     const sessionId = sessionIdRef.current
     void (async () => {
-      setStatusDetail('Speaking...')
-      try {
-        await speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, realtime: false })
-      } catch { /* already warned on mount */ }
-      if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail('Opening microphone...')
+      setStatusDetail("I'm listening...")
       await startListening()
       if (!sessionActiveRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail("I'm listening...")
+      void speak({ text: GREETING_TEXT, emotion: 'neutral', voiceId, stable: true }).catch(() => {})
     })()
   }, [speak, startListening, voiceId])
 

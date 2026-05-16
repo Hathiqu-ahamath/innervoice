@@ -9,13 +9,13 @@ interface UseVoiceInputOptions {
   onSilentCapture?: () => void
 }
 
-// Live mode: end utterance quickly after a short pause.
-const SILENCE_MS = 180
-const MIN_RECORD_MS = 200
-const MAX_RECORD_MS = 15000
-const RMS_THRESHOLD = 0.007
-const MIN_BLOB_BYTES = 800
-const CYCLE_RESTART_MS = 30
+// Live mode: allow a natural pause before sending (too short = bad transcripts).
+const SILENCE_MS = 520
+const MIN_RECORD_MS = 380
+const MAX_RECORD_MS = 18000
+const RMS_THRESHOLD = 0.005
+const MIN_BLOB_BYTES = 1000
+const CYCLE_RESTART_MS = 50
 
 export function useVoiceInput({
   onFinalTranscript,
@@ -246,7 +246,13 @@ export function useVoiceInput({
 
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
     } catch {
       runningRef.current = false
       onErrorRef.current?.('Microphone blocked. Allow mic access in browser settings.')

@@ -6,20 +6,27 @@ interface SpeakInput {
   text: string
   emotion: Emotion
   voiceId: string | null
-  realtime?: boolean
+  /** Live chat: use reliable non-streaming TTS (v3 then v2 fallback). */
+  stable?: boolean
 }
 
 async function fetchVoiceBlob(
   text: string,
   voiceId: string,
   emotion: Emotion,
-  realtime: boolean,
+  stable: boolean,
 ): Promise<Blob> {
+  if (stable) {
+    const blob = await textToSpeech(text, voiceId, emotion, { realtime: false })
+    if (blob.size >= 200) return blob
+    throw new Error('Voice service returned empty audio. Check ElevenLabs in Supabase secrets.')
+  }
+
   try {
-    const blob = await textToSpeech(text, voiceId, emotion, { realtime })
+    const blob = await textToSpeech(text, voiceId, emotion, { realtime: true })
     if (blob.size > 200) return blob
   } catch {
-    // fall through to non-realtime retry
+    // fall through
   }
   const blob = await textToSpeech(text, voiceId, emotion, { realtime: false })
   if (blob.size < 200) {
@@ -142,12 +149,12 @@ export function useVoiceOutput() {
   )
 
   const speak = useCallback(
-    async ({ text, emotion, voiceId, realtime = false }: SpeakInput) => {
+    async ({ text, emotion, voiceId, stable = true }: SpeakInput) => {
       stopSpeaking()
       setIsSpeaking(true)
 
       if (voiceId) {
-        const blob = await fetchVoiceBlob(text, voiceId, emotion, realtime)
+        const blob = await fetchVoiceBlob(text, voiceId, emotion, stable)
         await playBlob(blob)
         return
       }
