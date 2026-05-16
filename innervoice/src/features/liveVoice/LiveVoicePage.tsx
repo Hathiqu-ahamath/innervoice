@@ -21,12 +21,12 @@ const GREETING_TEXT = '[warm] Hey. [short pause] I am right here. Whenever you a
 const GREETING_DISPLAY = "Hey. I'm right here. Whenever you're ready, talk to me."
 
 const THINKING_FILLERS = [
-  { display: '…', spoken: '[thoughtful] Mmmm.' },
-  { display: '…', spoken: '[hesitant] Uhhhh.' },
-  { display: '…', spoken: '[thinking] Yhhhh.' },
-  { display: '…', spoken: '[hesitant] Errrr.' },
-  { display: '…', spoken: '[thoughtful] Emmm.' },
-  { display: '…', spoken: '[thinking] Hmmmm.' },
+  { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
+  { display: 'Okay, I hear you.', spoken: '[softly] Okay, [short pause] I hear you.' },
+  { display: 'Yeah, give me a moment.', spoken: '[gentle exhale] Yeah, [short pause] give me a moment.' },
+  { display: 'Hmm, thinking...', spoken: '[thoughtful] Hmm, [short pause] thinking.' },
+  { display: 'Right, with you.', spoken: '[warm] Right, [short pause] with you.' },
+  { display: 'Mhm, just a sec.', spoken: '[softly] Mhm, [short pause] just a sec.' },
 ]
 
 function pickFiller() {
