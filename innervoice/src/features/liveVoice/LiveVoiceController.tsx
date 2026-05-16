@@ -12,13 +12,6 @@ function currentTimestamp() {
   return Date.now()
 }
 
-function paceLiveSpeech(text: string): string {
-  const clean = text.replace(/\[[^\]]+\]/g, '').trim()
-  if (!clean) return '[thoughtful] I am here.'
-  const words = clean.split(/\s+/).filter(Boolean)
-  return `[thoughtful] ${words.join(' [short pause] ')}`
-}
-
 function LiveOrb({ level, active }: { level: number; active: boolean }) {
   const scale = active ? 0.96 + Math.min(0.34, level * 0.36) : 1
   const glow = active ? 0.18 + Math.min(0.62, level * 0.68) : 0.1
@@ -136,10 +129,10 @@ export function LiveVoiceController() {
       }
       setLatestReply(turn.displayText)
       await speak({
-        text: paceLiveSpeech(turn.spokenText),
+        text: turn.spokenText,
         emotion: turn.emotion,
         voiceId,
-        realtime: true,
+        realtime: false,
       })
       if (liveModeRef.current && sessionIdRef.current === sessionId) {
         setStatusDetail('Listening...')
@@ -194,7 +187,7 @@ export function LiveVoiceController() {
       text: openerSpoken,
       emotion: 'hopeful',
       voiceId,
-      realtime: true,
+      realtime: false,
     }).finally(() => {
       if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
       setStatusDetail('Listening...')

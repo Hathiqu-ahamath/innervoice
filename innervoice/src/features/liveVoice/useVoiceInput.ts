@@ -20,7 +20,7 @@ export function useVoiceInput({
   const [inputLevel, setInputLevel] = useState(0)
   const streamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
-  const cycleRafRef = useRef<number | null>(null)
+  const chunkStopTimerRef = useRef<number | null>(null)
   const runningRef = useRef(false)
   const meterContextRef = useRef<AudioContext | null>(null)
   const meterAnalyserRef = useRef<AnalyserNode | null>(null)
@@ -48,9 +48,9 @@ export function useVoiceInput({
 
   const stopListening = useCallback(() => {
     runningRef.current = false
-    if (cycleRafRef.current !== null) {
-      cancelAnimationFrame(cycleRafRef.current)
-      cycleRafRef.current = null
+    if (chunkStopTimerRef.current !== null) {
+      window.clearTimeout(chunkStopTimerRef.current)
+      chunkStopTimerRef.current = null
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop()
@@ -97,6 +97,9 @@ export function useVoiceInput({
           }
           const rms = Math.sqrt(sum / data.length)
           setInputLevel(Math.min(1, rms * 5))
+          if (rms > 0.02) {
+            onActivity?.()
+          }
           meterRafRef.current = requestAnimationFrame(tick)
         }
         meterRafRef.current = requestAnimationFrame(tick)
@@ -109,20 +112,17 @@ export function useVoiceInput({
         const recorder = new MediaRecorder(streamRef.current)
         recorderRef.current = recorder
         const chunks: BlobPart[] = []
-        const startedAt = Date.now()
-        let speechDetected = false
-        let lastSpeechAt = startedAt
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) chunks.push(event.data)
         }
         recorder.onstop = async () => {
-          if (cycleRafRef.current !== null) {
-            cancelAnimationFrame(cycleRafRef.current)
-            cycleRafRef.current = null
+          if (chunkStopTimerRef.current !== null) {
+            window.clearTimeout(chunkStopTimerRef.current)
+            chunkStopTimerRef.current = null
           }
           if (!runningRef.current) return
           const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
-          if (blob.size > 2200) {
+          if (blob.size > 1000) {
             try {
               const text = await transcribeAudio(blob)
               const trimmed = text.trim()
@@ -143,47 +143,9 @@ export function useVoiceInput({
           if (runningRef.current) runCycle()
         }
         recorder.start(250)
-
-        const data = new Uint8Array(64)
-        const tick = () => {
-          if (!runningRef.current || recorder.state === 'inactive') return
-          let rms = 0
-          if (meterAnalyserRef.current) {
-            const analyser = meterAnalyserRef.current
-            analyser.getByteTimeDomainData(data)
-            let sum = 0
-            for (let i = 0; i < data.length; i += 1) {
-              const n = (data[i] - 128) / 128
-              sum += n * n
-            }
-            rms = Math.sqrt(sum / data.length)
-          }
-
-          const now = Date.now()
-          if (rms > 0.028) {
-            if (!speechDetected) {
-              speechDetected = true
-              onSpeechStart?.()
-            }
-            lastSpeechAt = now
-            onActivity?.()
-          }
-
-          const minUtteranceMs = 1100
-          const silenceEndMs = 850
-          const maxUtteranceMs = 7600
-          const elapsed = now - startedAt
-
-          const shouldStopForSilence =
-            speechDetected && elapsed > minUtteranceMs && now - lastSpeechAt > silenceEndMs
-          const shouldStopForMaxLen = elapsed > maxUtteranceMs
-          if (shouldStopForSilence || shouldStopForMaxLen) {
-            recorder.stop()
-            return
-          }
-          cycleRafRef.current = requestAnimationFrame(tick)
-        }
-        cycleRafRef.current = requestAnimationFrame(tick)
+        chunkStopTimerRef.current = window.setTimeout(() => {
+          if (recorder.state !== 'inactive') recorder.stop()
+        }, 7000)
       }
 
       runCycle()
