@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { AudioLines, Sparkles } from 'lucide-react'
-import { cloneVoice, textToSpeech } from './api/elevenlabs'
+import { cloneVoice, stripAudioTags, textToSpeech } from './api/elevenlabs'
 import { detectEmotion, getFutureSelfResponse } from './api/openai'
 import { ChatView } from './components/ChatView'
 import { CloningView } from './components/CloningView'
@@ -105,12 +105,12 @@ export default function App() {
       setIsProcessing(true)
       setError(null)
       try {
-        const responseText = await getFutureSelfResponse(updatedMessages)
-        const audioBlob = await textToSpeech(responseText, voiceId, userEmotion)
+        const responseTextWithTags = await getFutureSelfResponse(updatedMessages)
+        const audioBlob = await textToSpeech(responseTextWithTags, voiceId, userEmotion)
         const assistantMessage: Message = {
           id: crypto.randomUUID(),
           role: 'assistant',
-          text: responseText,
+          text: stripAudioTags(responseTextWithTags),
           timestamp: Date.now(),
           audioUrl: URL.createObjectURL(audioBlob),
         }

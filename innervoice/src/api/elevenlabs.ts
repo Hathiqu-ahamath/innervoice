@@ -37,19 +37,31 @@ export async function cloneVoice(audioBlob: Blob, name = `InnerVoice-${Date.now(
 }
 
 function getVoiceSettings(emotion: Emotion) {
+  // v3 settings — higher style values bring out emotion and audio tag interpretation.
   switch (emotion) {
     case 'sad':
-      return { stability: 0.35, similarity_boost: 0.82, style: 0.65, use_speaker_boost: true, speed: 0.93 }
+      return { stability: 0.3, similarity_boost: 0.85, style: 0.85, use_speaker_boost: true, speed: 0.92 }
     case 'anxious':
-      return { stability: 0.4, similarity_boost: 0.8, style: 0.7, use_speaker_boost: true, speed: 0.94 }
+      return { stability: 0.35, similarity_boost: 0.82, style: 0.85, use_speaker_boost: true, speed: 0.94 }
     case 'hopeful':
-      return { stability: 0.55, similarity_boost: 0.82, style: 0.75, use_speaker_boost: true, speed: 0.98 }
+      return { stability: 0.5, similarity_boost: 0.85, style: 0.9, use_speaker_boost: true, speed: 1.0 }
     case 'grateful':
-      return { stability: 0.52, similarity_boost: 0.84, style: 0.72, use_speaker_boost: true, speed: 0.97 }
+      return { stability: 0.45, similarity_boost: 0.85, style: 0.88, use_speaker_boost: true, speed: 0.98 }
     case 'neutral':
     default:
-      return { stability: 0.5, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true, speed: 0.96 }
+      return { stability: 0.4, similarity_boost: 0.82, style: 0.82, use_speaker_boost: true, speed: 0.96 }
   }
+}
+
+/**
+ * Strip ElevenLabs v3 audio tags (e.g. [sighs], [deep breath]) from text intended for display.
+ * Keeps the tags in the version sent to ElevenLabs so the v3 model can act on them.
+ */
+export function stripAudioTags(text: string): string {
+  return text
+    .replace(/\[[^\]]+\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
 
 export async function textToSpeech(text: string, voiceId: string, emotion: Emotion = 'neutral'): Promise<Blob> {
@@ -69,7 +81,23 @@ export async function textToSpeech(text: string, voiceId: string, emotion: Emoti
   })
 
   if (!response.ok) {
-    throw new Error('Unable to synthesize speech with ElevenLabs.')
+    // Fall back to multilingual_v2 if v3 access is gated for this account.
+    const fallback = await fetch(`${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': ELEVENLABS_KEY!,
+      },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: getVoiceSettings(emotion),
+      }),
+    })
+    if (!fallback.ok) {
+      throw new Error('Unable to synthesize speech with ElevenLabs.')
+    }
+    return fallback.blob()
   }
   return response.blob()
 }
