@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Hand, PhoneOff, Radio, Sparkles } from 'lucide-react'
+import { Hand, Mic, PhoneOff, Radio, Sparkles } from 'lucide-react'
 import type { Emotion } from '../../types'
 import { useAuth } from '../../AuthContext'
 import { BreathingVoiceOrb, type OrbEmotion, type OrbState } from '../../components/BreathingVoiceOrb'
@@ -103,6 +103,8 @@ export function LiveVoicePage({ onLeave }: Props) {
   const wasInterruptedRef = useRef(false)
   const activeTurnRef = useRef(0)
   const fillerTimerRef = useRef<number | null>(null)
+  /** When false, mic audio is ignored until the user taps the orb. */
+  const acceptingInputRef = useRef(true)
 
   const clearFillerTimer = useCallback(() => {
     if (fillerTimerRef.current !== null) {
@@ -144,6 +146,7 @@ export function LiveVoicePage({ onLeave }: Props) {
       },
       onError: (message) => setStickyStatus(message),
       onFinalTranscript: (finalText) => {
+        if (!acceptingInputRef.current) return
         silentCaptureCountRef.current = 0
         const trimmed = finalText.trim()
         if (trimmed) {
@@ -172,6 +175,7 @@ export function LiveVoicePage({ onLeave }: Props) {
     ) => {
       if (!voiceId) {
         setStickyStatus('No cloned voice — complete Voice Train to hear replies in your voice.')
+        acceptingInputRef.current = true
         resumeCapture()
         return
       }
@@ -191,6 +195,7 @@ export function LiveVoicePage({ onLeave }: Props) {
         setStickyStatus(msg)
       } finally {
         if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
+        acceptingInputRef.current = true
         resumeCapture()
         setStatusDetail("I'm listening...")
         lastActivityAtRef.current = Date.now()
@@ -199,16 +204,32 @@ export function LiveVoicePage({ onLeave }: Props) {
     [pauseCapture, resumeCapture, setStickyStatus, speak, voiceId],
   )
 
-  // Interrupt: tap the orb while the AI is speaking.
-  const interruptAndListen = useCallback(() => {
-    if (!isSpeakingRef.current) return
-    wasInterruptedRef.current = true
-    activeTurnRef.current += 1
-    clearFillerTimer()
-    stopSpeaking()
-    setStatusDetail("I'm listening...")
-    resumeCapture()
-  }, [clearFillerTimer, resumeCapture, stopSpeaking])
+  // Orb tap: interrupt AI/thinking OR start hearing (never auto-interrupt on voice).
+  const handleOrbPress = useCallback(() => {
+    if (!sessionActiveRef.current) return
+
+    const busy = isSpeakingRef.current || isProcessingRef.current
+
+    if (busy) {
+      wasInterruptedRef.current = true
+      activeTurnRef.current += 1
+      clearFillerTimer()
+      stopSpeaking()
+      isProcessingRef.current = false
+      acceptingInputRef.current = true
+      setStatusDetail("I'm listening...")
+      resumeCapture()
+      lastActivityAtRef.current = Date.now()
+      return
+    }
+
+    if (!isListening) {
+      acceptingInputRef.current = true
+      setStatusDetail("I'm listening...")
+      void startListening()
+      lastActivityAtRef.current = Date.now()
+    }
+  }, [clearFillerTimer, resumeCapture, startListening, stopSpeaking])
 
   const handleTranscript = useCallback(
     async (finalText: string) => {
@@ -234,11 +255,15 @@ export function LiveVoicePage({ onLeave }: Props) {
         return
       }
 
-      // Barge-in: new speech cancels in-flight reply and starts fresh.
+      if (!acceptingInputRef.current || isProcessingRef.current || isSpeakingRef.current) {
+        return
+      }
+
       const turnId = ++activeTurnRef.current
       clearFillerTimer()
-      stopSpeaking()
       wasInterruptedRef.current = false
+      acceptingInputRef.current = false
+      pauseCapture()
 
       setLastUserCaption(trimmed)
       setStatusDetail('Thinking…')
@@ -277,7 +302,7 @@ export function LiveVoicePage({ onLeave }: Props) {
         }
       }
     },
-    [clearFillerTimer, pauseCapture, processUserTurn, resumeCapture, speakReply, stopSpeaking],
+    [clearFillerTimer, pauseCapture, processUserTurn, resumeCapture, speakReply],
   )
 
   useEffect(() => {
@@ -330,6 +355,7 @@ export function LiveVoicePage({ onLeave }: Props) {
     setIsSessionActive(true)
     sessionIdRef.current += 1
     const sessionId = sessionIdRef.current
+    acceptingInputRef.current = true
     lastActivityAtRef.current = Date.now()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
     silentCaptureCountRef.current = 0
@@ -371,6 +397,7 @@ export function LiveVoicePage({ onLeave }: Props) {
     sessionIdRef.current += 1
     sessionActiveRef.current = true
     setIsSessionActive(true)
+    acceptingInputRef.current = true
     lastActivityAtRef.current = Date.now()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
     silentCaptureCountRef.current = 0
@@ -395,6 +422,19 @@ export function LiveVoicePage({ onLeave }: Props) {
   }, [isListening, isSessionActive, isSpeaking, state.isProcessing])
 
   const combinedLevel = useMemo(() => Math.max(inputLevel * 0.9, outputLevel), [inputLevel, outputLevel])
+
+  const orbNeedsTap = useMemo(
+    () =>
+      isSessionActive &&
+      (isSpeaking || state.isProcessing || (!isListening && !state.isProcessing && !isSpeaking)),
+    [isListening, isSessionActive, isSpeaking, state.isProcessing],
+  )
+
+  const orbHint = useMemo(() => {
+    if (isSpeaking || state.isProcessing) return 'Tap orb to interrupt & listen'
+    if (!isListening && isSessionActive) return 'Tap orb to start speaking'
+    return null
+  }, [isListening, isSessionActive, isSpeaking, state.isProcessing])
 
   const orbState: OrbState = useMemo(() => {
     if (isSpeaking) return 'speaking'
@@ -459,25 +499,40 @@ export function LiveVoicePage({ onLeave }: Props) {
         <div className="flex items-center justify-center">
           <motion.button
             type="button"
-            aria-label={isSpeaking ? 'Tap to interrupt' : orbState}
-            onClick={isSpeaking ? interruptAndListen : undefined}
-            className={isSpeaking ? 'cursor-pointer rounded-full outline-none' : 'cursor-default rounded-full'}
-            whileTap={isSpeaking ? { scale: 0.94 } : {}}
+            aria-label={orbHint ?? orbState}
+            onClick={orbNeedsTap ? handleOrbPress : undefined}
+            className={`relative rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+              orbNeedsTap ? 'cursor-pointer' : 'cursor-default'
+            }`}
+            whileTap={orbNeedsTap ? { scale: 0.94 } : {}}
           >
+            {orbNeedsTap && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 rounded-full border-2 border-accent/50 shadow-[0_0_20px] shadow-accent/30"
+              />
+            )}
             <BreathingVoiceOrb state={orbState} emotion={orbEmotion} level={combinedLevel} size={orbSize} />
           </motion.button>
         </div>
 
-        {/* Interrupt hint */}
-        {isSpeaking && (
+        {orbHint && (
           <motion.p
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
             className="mt-2 text-center text-xs text-accent"
           >
-            <Hand size={11} className="mr-1 inline" />
-            Tap orb to interrupt
+            {isSpeaking || state.isProcessing ? (
+              <>
+                <Hand size={11} className="mr-1 inline" />
+                {orbHint}
+              </>
+            ) : (
+              <>
+                <Mic size={11} className="mr-1 inline" />
+                {orbHint}
+              </>
+            )}
           </motion.p>
         )}
 
