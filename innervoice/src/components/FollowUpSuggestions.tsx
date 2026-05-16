@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Lightbulb, X } from 'lucide-react'
 
 const BANK = [
   'What should I focus on right now?',
@@ -12,43 +14,83 @@ const BANK = [
 ]
 
 interface Props {
+  open: boolean
+  onClose: () => void
   onSelect: (text: string) => void
 }
 
-export function FollowUpSuggestions({ onSelect }: Props) {
-  const [dismissed, setDismissed] = useState(false)
-  const suggestions = BANK.slice(0, 3)
+export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
+  const [suggestions, setSuggestions] = useState(() => BANK.slice(0, 3))
 
-  if (dismissed) return null
+  useEffect(() => {
+    if (!open) return
+    const shuffled = [...BANK].sort(() => 0.5 - Math.random())
+    setSuggestions(shuffled.slice(0, 3))
+  }, [open])
 
   return (
-    <div className="glass-panel rounded-xl border border-border p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-text-secondary">Try asking:</p>
-        <button
-          type="button"
-          aria-label="Dismiss suggestions"
-          onClick={() => setDismissed(true)}
-          className="text-xs text-text-tertiary"
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={onClose}
         >
-          Dismiss
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {suggestions.map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => {
-              onSelect(item)
-              setDismissed(true)
-            }}
-            className="rounded-full border border-border bg-black/40 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.97 }}
+            transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="suggestions-title"
+            className="glass-panel glow-red w-full max-w-md rounded-2xl border border-border p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
           >
-            {item}
-          </button>
-        ))}
-      </div>
-    </div>
+            <div>
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-600/20 text-red-400">
+                    <Lightbulb size={18} />
+                  </div>
+                  <div>
+                    <h3 id="suggestions-title" className="text-sm font-semibold text-text-primary">
+                      Try asking
+                    </h3>
+                    <p className="text-xs text-text-secondary">Tap a prompt to start the conversation</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close suggestions"
+                  onClick={onClose}
+                  className="rounded-full border border-border p-1.5 text-text-tertiary transition hover:border-red-500/60 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {suggestions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => {
+                      onSelect(item)
+                      onClose()
+                    }}
+                    className="rounded-xl border border-border bg-black/50 px-4 py-3 text-left text-sm text-text-primary transition hover:border-red-500/50 hover:bg-red-600/10"
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

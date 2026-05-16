@@ -1,227 +1,142 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Mic, MicOff } from 'lucide-react'
-
-type SpeechRecognitionInstance = {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  start: () => void
-  stop: () => void
-  abort: () => void
-  onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
-  onend: (() => void) | null
-  onstart: (() => void) | null
-}
-
-interface SpeechRecognitionEvent {
-  resultIndex: number
-  results: ArrayLike<{
-    isFinal: boolean
-    0: {
-      transcript: string
-    }
-  }>
-}
-
-interface SpeechRecognitionErrorEvent {
-  error: string
-}
+import { useEffect, useRef, useState } from 'react'
+import { Loader2, Mic, Square } from 'lucide-react'
+import { transcribeAudio } from '../api/speechToText'
 
 interface Props {
   onTranscript: (text: string) => void
   disabled?: boolean
-  keepListening?: boolean
 }
 
-const IGNORED_ERRORS = new Set(['no-speech', 'aborted', 'audio-capture'])
-
-export function VoiceInput({ onTranscript, disabled = false, keepListening = false }: Props) {
-  const [isListening, setIsListening] = useState(false)
-  const [interim, setInterim] = useState('')
+export function VoiceInput({ onTranscript, disabled = false }: Props) {
+  const [status, setStatus] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [elapsedSec, setElapsedSec] = useState(0)
 
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
-  const shouldListenRef = useRef(false)
-  const restartTimerRef = useRef<number | null>(null)
+  const mediaRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const timerRef = useRef<number | null>(null)
   const onTranscriptRef = useRef(onTranscript)
-  const disabledRef = useRef(disabled)
 
   useEffect(() => {
     onTranscriptRef.current = onTranscript
   }, [onTranscript])
 
-  useEffect(() => {
-    disabledRef.current = disabled
-  }, [disabled])
-
-  const RecognitionCtor = useMemo(() => {
-    const win = window as Window & {
-      SpeechRecognition?: new () => SpeechRecognitionInstance
-      webkitSpeechRecognition?: new () => SpeechRecognitionInstance
-    }
-    return win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null
-  }, [])
-
-  const clearRestartTimer = () => {
-    if (restartTimerRef.current !== null) {
-      window.clearTimeout(restartTimerRef.current)
-      restartTimerRef.current = null
-    }
-  }
-
-  const ensureRecognition = useCallback(() => {
-    if (!RecognitionCtor) return null
-    if (recognitionRef.current) return recognitionRef.current
-
-    const recognition = new RecognitionCtor()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = 'en-US'
-
-    recognition.onstart = () => {
-      setIsListening(true)
-      setError(null)
-    }
-
-    recognition.onresult = (event) => {
-      let finalText = ''
-      let interimText = ''
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const transcript = event.results[i][0].transcript
-        if (event.results[i].isFinal) {
-          finalText = `${finalText} ${transcript}`.trim()
-        } else {
-          interimText += transcript
-        }
-      }
-      if (finalText) {
-        onTranscriptRef.current(finalText)
-      }
-      setInterim(interimText)
-    }
-
-    recognition.onerror = (event) => {
-      const code = event?.error ?? 'unknown'
-      if (IGNORED_ERRORS.has(code)) {
-        return
-      }
-      if (code === 'not-allowed' || code === 'service-not-allowed') {
-        shouldListenRef.current = false
-        setError('Microphone access blocked. Allow it in browser settings.')
-        setIsListening(false)
-        return
-      }
-      // For anything else, stay silent and let onend handle restart.
-    }
-
-    recognition.onend = () => {
-      setInterim('')
-      if (!shouldListenRef.current || disabledRef.current) {
-        setIsListening(false)
-        return
-      }
-      clearRestartTimer()
-      restartTimerRef.current = window.setTimeout(() => {
-        try {
-          recognitionRef.current?.start()
-        } catch {
-          // Already running — ignore.
-        }
-      }, 250)
-    }
-
-    recognitionRef.current = recognition
-    return recognition
-  }, [RecognitionCtor])
-
-  const startListening = () => {
-    if (disabled) return
-    const recognition = ensureRecognition()
-    if (!recognition) return
-    shouldListenRef.current = true
-    try {
-      recognition.start()
-    } catch {
-      // Already running.
-    }
-  }
-
-  const stopListening = () => {
-    shouldListenRef.current = false
-    clearRestartTimer()
-    try {
-      recognitionRef.current?.abort()
-    } catch {
-      // ignore
-    }
-    setIsListening(false)
-    setInterim('')
-  }
-
-  useEffect(() => {
-    if (!keepListening || disabled) {
-      shouldListenRef.current = false
-      clearRestartTimer()
-      try {
-        recognitionRef.current?.abort()
-      } catch {
-        // ignore — onend will clear listening state
-      }
-      return
-    }
-    shouldListenRef.current = true
-    const recognition = ensureRecognition()
-    if (!recognition) return
-    try {
-      recognition.start()
-    } catch {
-      // Already running.
-    }
-  }, [disabled, ensureRecognition, keepListening])
-
   useEffect(
     () => () => {
-      shouldListenRef.current = false
-      clearRestartTimer()
-      try {
-        recognitionRef.current?.abort()
-      } catch {
-        // ignore
-      }
+      if (timerRef.current) window.clearInterval(timerRef.current)
+      streamRef.current?.getTracks().forEach((track) => track.stop())
     },
     [],
   )
 
-  if (!RecognitionCtor) {
-    return null
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current)
+      timerRef.current = null
+    }
   }
 
+  const startRecording = async () => {
+    if (disabled || status !== 'idle') return
+    setError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      const recorder = new MediaRecorder(stream)
+      mediaRef.current = recorder
+      chunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data)
+      }
+
+      recorder.onstop = async () => {
+        stopStream()
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        setStatus('transcribing')
+        try {
+          const text = await transcribeAudio(blob)
+          if (text) {
+            onTranscriptRef.current(text)
+          } else {
+            setError('No speech detected. Try again.')
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Transcription failed.')
+        } finally {
+          setStatus('idle')
+          setElapsedSec(0)
+        }
+      }
+
+      recorder.start()
+      setStatus('recording')
+      setElapsedSec(0)
+      timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000)
+    } catch {
+      setError('Microphone blocked. Allow mic access in browser settings.')
+      stopStream()
+    }
+  }
+
+  const stopRecording = () => {
+    const recorder = mediaRef.current
+    if (!recorder || recorder.state === 'inactive') return
+    if (recorder.state === 'recording') {
+      recorder.requestData()
+    }
+    recorder.stop()
+    mediaRef.current = null
+  }
+
+  const handleClick = () => {
+    if (disabled || status === 'transcribing') return
+    if (status === 'recording') {
+      stopRecording()
+    } else {
+      void startRecording()
+    }
+  }
+
+  const isRecording = status === 'recording'
+  const isTranscribing = status === 'transcribing'
+
   return (
-    <div className="relative flex items-center justify-center">
-      {interim && (
-        <div className="pointer-events-none absolute -top-12 left-1/2 z-10 w-max max-w-[260px] -translate-x-1/2 rounded-full border border-border bg-black/90 px-3 py-1 text-xs text-text-secondary shadow">
-          {interim}
-        </div>
-      )}
+    <div className="relative flex shrink-0 items-center justify-center">
       {error && (
-        <p className="pointer-events-none absolute -top-12 left-1/2 z-10 w-max max-w-[260px] -translate-x-1/2 whitespace-nowrap rounded-full bg-red-950/90 px-3 py-1 text-xs text-red-300">
+        <p className="pointer-events-none absolute -top-14 left-1/2 z-20 w-max max-w-[280px] -translate-x-1/2 rounded-lg border border-red-700/60 bg-red-950/95 px-3 py-1.5 text-center text-xs text-red-200">
           {error}
+        </p>
+      )}
+      {isRecording && (
+        <p className="pointer-events-none absolute -top-10 left-1/2 z-20 -translate-x-1/2 text-xs text-red-400">
+          {elapsedSec}s — tap to send
         </p>
       )}
       <button
         type="button"
-        aria-label={isListening ? 'Stop listening' : 'Start voice input'}
-        disabled={disabled}
-        onClick={isListening ? stopListening : startListening}
-        className={`relative flex h-12 w-12 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-          isListening
+        aria-label={isRecording ? 'Stop and transcribe' : isTranscribing ? 'Transcribing' : 'Record voice message'}
+        disabled={disabled || isTranscribing}
+        onClick={handleClick}
+        className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+          isRecording
             ? 'border-red-400 bg-red-600 text-white shadow-[0_0_24px_rgba(239,68,68,0.45)]'
-            : 'border-border bg-black/70 text-text-secondary hover:border-red-500/60 hover:text-white'
+            : isTranscribing
+              ? 'border-border bg-black/70 text-text-secondary'
+              : 'border-border bg-black/70 text-text-secondary hover:border-red-500/60 hover:text-white'
         }`}
       >
-        {isListening ? <Mic size={18} /> : <MicOff size={18} />}
-        {isListening && (
+        {isTranscribing ? (
+          <Loader2 size={18} className="animate-spin" />
+        ) : isRecording ? (
+          <Square size={16} />
+        ) : (
+          <Mic size={18} />
+        )}
+        {isRecording && (
           <span className="pointer-events-none absolute inset-0 animate-ping rounded-full border border-red-400/60" />
         )}
       </button>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Pause, Play, Send, Waves } from 'lucide-react'
+import { Lightbulb, Pause, Play, Send, Waves } from 'lucide-react'
 import type { Message } from '../types'
 import { FollowUpSuggestions } from './FollowUpSuggestions'
 import { VoiceInput } from './VoiceInput'
@@ -30,6 +30,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
   const [input, setInput] = useState('')
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(true)
   const [assistantSpeaking, setAssistantSpeaking] = useState(false)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const logRef = useRef<HTMLDivElement | null>(null)
   const { levels, connect } = useAudioVisualizer()
   const maxChars = 1000
@@ -61,7 +62,9 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           <Waves size={18} className="text-red-400" />
           Your Future Self is Here
         </h2>
-        <p className="text-sm text-text-secondary">Voice-to-voice is on by default. You can still type anytime.</p>
+        <p className="text-sm text-text-secondary">
+          Tap the mic to record, then tap again to send. Open the lightbulb for ideas.
+        </p>
       </header>
 
       <div className="glass-panel flex items-center justify-between gap-3 rounded-xl border border-border p-3">
@@ -128,22 +131,33 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
         )}
       </div>
 
-      <FollowUpSuggestions onSelect={onSend} />
+      <FollowUpSuggestions
+        open={suggestionsOpen}
+        onClose={() => setSuggestionsOpen(false)}
+        onSelect={onSend}
+      />
 
       <div className="flex items-end gap-2">
+        <button
+          type="button"
+          aria-label="Open question suggestions"
+          onClick={() => setSuggestionsOpen(true)}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-black/60 text-text-secondary transition hover:border-red-500/60 hover:text-white"
+        >
+          <Lightbulb size={18} />
+        </button>
         <VoiceInput
           disabled={isProcessing || assistantSpeaking}
-          keepListening={voiceModeEnabled}
           onTranscript={(text) => {
             if (!text.trim()) return
             if (voiceModeEnabled && !isProcessing && !assistantSpeaking) {
               onSend(text)
               return
             }
-            setInput((prev) => `${prev} ${text}`.trim())
+            setInput((prev) => (prev ? `${prev} ${text}` : text).trim())
           }}
         />
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <textarea
             value={input}
             maxLength={maxChars}
