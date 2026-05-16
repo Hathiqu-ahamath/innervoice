@@ -9,18 +9,11 @@ interface UseVoiceInputOptions {
   onSilentCapture?: () => void
 }
 
-// How long (ms) of quiet after audio before we stop and upload.
-const SILENCE_AFTER_AUDIO_MS = 300
-// Minimum recording length before silence-stop is allowed.
-const MIN_RECORD_MS = 400
-// Hard cap — always upload after this even if still noisy.
-const MAX_RECORD_MS = 12000
-// RMS level above which we consider the mic "live".
-const SPEECH_RMS_THRESHOLD = 0.008
-// Smallest blob we'll bother sending to Whisper.
-const MIN_BLOB_BYTES = 800
-
-function nowMs() { return Date.now() }
+const SILENCE_MS     = 300   // ms of quiet before we stop and send
+const MIN_RECORD_MS  = 400   // minimum recording before silence-stop fires
+const MAX_RECORD_MS  = 12000 // hard cap per utterance
+const RMS_THRESHOLD  = 0.008 // audio level considered "voice"
+const MIN_BLOB_BYTES = 1000  // must match transcribeAudio's own guard
 
 export function useVoiceInput({
   onFinalTranscript,
@@ -32,40 +25,36 @@ export function useVoiceInput({
   const [isSupported] = useState(
     Boolean(navigator.mediaDevices && typeof MediaRecorder !== 'undefined'),
   )
-  const [isListening, setIsListening] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  const [inputLevel, setInputLevel] = useState(0)
+  const [isListening,  setIsListening]  = useState(false)
+  const [transcript,   setTranscript]   = useState('')
+  const [inputLevel,   setInputLevel]   = useState(0)
 
-  const mediaRef     = useRef<MediaRecorder | null>(null)
+  // ONE stream per session — never close it between recording cycles.
   const streamRef    = useRef<MediaStream | null>(null)
-  const chunksRef    = useRef<Blob[]>([])
+  const recorderRef  = useRef<MediaRecorder | null>(null)
   const runningRef   = useRef(false)
-  const stoppingRef  = useRef(false)
-  const cycleIdRef   = useRef(0)
+  const sessionIdRef = useRef(0) // bump to abort stale async operations
 
   const silenceTimerRef = useRef<number | null>(null)
   const maxTimerRef     = useRef<number | null>(null)
-  const meterContextRef = useRef<AudioContext | null>(null)
   const meterRafRef     = useRef<number | null>(null)
+  const meterCtxRef     = useRef<AudioContext | null>(null)
 
-  // Last time we measured audio above threshold (used for silence detection).
-  const lastAudioAtRef = useRef(0)
-  // Whether we've seen audio above threshold at least once in this cycle.
-  const audioSeenRef   = useRef(false)
-  // When the current recording started.
-  const recordStartRef = useRef(0)
+  const lastAudioAtRef  = useRef(0)
+  const recordStartRef  = useRef(0)
+  const stoppingRef     = useRef(false)
 
-  const onFinalTranscriptRef = useRef(onFinalTranscript)
-  const onSpeechStartRef     = useRef(onSpeechStart)
-  const onActivityRef        = useRef(onActivity)
-  const onErrorRef           = useRef(onError)
-  const onSilentCaptureRef   = useRef(onSilentCapture)
-
-  useEffect(() => { onFinalTranscriptRef.current = onFinalTranscript }, [onFinalTranscript])
-  useEffect(() => { onSpeechStartRef.current = onSpeechStart },         [onSpeechStart])
-  useEffect(() => { onActivityRef.current = onActivity },               [onActivity])
-  useEffect(() => { onErrorRef.current = onError },                     [onError])
-  useEffect(() => { onSilentCaptureRef.current = onSilentCapture },     [onSilentCapture])
+  // Stable callback refs — never cause stale closures.
+  const onFinalRef   = useRef(onFinalTranscript)
+  const onStartRef   = useRef(onSpeechStart)
+  const onActivityR  = useRef(onActivity)
+  const onErrorRef   = useRef(onError)
+  const onSilentRef  = useRef(onSilentCapture)
+  useEffect(() => { onFinalRef.current  = onFinalTranscript }, [onFinalTranscript])
+  useEffect(() => { onStartRef.current  = onSpeechStart     }, [onSpeechStart])
+  useEffect(() => { onActivityR.current = onActivity        }, [onActivity])
+  useEffect(() => { onErrorRef.current  = onError           }, [onError])
+  useEffect(() => { onSilentRef.current = onSilentCapture   }, [onSilentCapture])
 
   const clearTimers = useCallback(() => {
     if (silenceTimerRef.current !== null) { window.clearInterval(silenceTimerRef.current); silenceTimerRef.current = null }
@@ -74,70 +63,140 @@ export function useVoiceInput({
 
   const stopMeter = useCallback(() => {
     if (meterRafRef.current !== null) { cancelAnimationFrame(meterRafRef.current); meterRafRef.current = null }
-    if (meterContextRef.current) { void meterContextRef.current.close().catch(() => {}); meterContextRef.current = null }
+    if (meterCtxRef.current) { void meterCtxRef.current.close().catch(() => {}); meterCtxRef.current = null }
     setInputLevel(0)
   }, [])
 
-  const stopStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    stopMeter()
-  }, [stopMeter])
-
-  const stopCurrentRecording = useCallback(() => {
-    const rec = mediaRef.current
-    if (!rec || rec.state === 'inactive' || stoppingRef.current) return
+  // Hard-stop the current recorder (safe to call multiple times).
+  const stopRecorder = useCallback(() => {
+    if (stoppingRef.current) return
+    const rec = recorderRef.current
+    if (!rec || rec.state === 'inactive') return
     stoppingRef.current = true
-    try {
-      if (rec.state === 'recording') rec.requestData()
-      rec.stop()
-    } catch { stoppingRef.current = false }
-  }, [])
+    clearTimers()
+    try { rec.requestData(); rec.stop() } catch { stoppingRef.current = false }
+  }, [clearTimers])
 
   const stopListening = useCallback(() => {
     runningRef.current = false
-    cycleIdRef.current += 1
+    sessionIdRef.current += 1
     clearTimers()
-    stopCurrentRecording()
-    mediaRef.current = null
-    stopStream()
-    audioSeenRef.current = false
+    stopRecorder()
+    recorderRef.current = null
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    stopMeter()
     setIsListening(false)
     setTranscript('')
-  }, [clearTimers, stopCurrentRecording, stopStream])
+  }, [clearTimers, stopMeter, stopRecorder])
 
-  const startMeter = useCallback((stream: MediaStream, cycleId: number) => {
+  // Start the AudioContext meter on the stream (called once per session).
+  const startMeter = useCallback((stream: MediaStream, sid: number) => {
+    stopMeter()
     try {
       const Ctx: typeof AudioContext =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       const ctx = new Ctx()
-      if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+      void ctx.resume().catch(() => {})
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       ctx.createMediaStreamSource(stream).connect(analyser)
-      meterContextRef.current = ctx
+      meterCtxRef.current = ctx
       const buf = new Uint8Array(analyser.frequencyBinCount)
       const tick = () => {
-        if (!runningRef.current || cycleId !== cycleIdRef.current) return
+        if (!runningRef.current || sessionIdRef.current !== sid) return
         analyser.getByteTimeDomainData(buf)
         let sum = 0
         for (let i = 0; i < buf.length; i++) { const n = (buf[i] - 128) / 128; sum += n * n }
         const rms = Math.sqrt(sum / buf.length)
         setInputLevel(Math.min(1, rms * 6))
-        if (rms > SPEECH_RMS_THRESHOLD) {
-          lastAudioAtRef.current = nowMs()
-          onActivityRef.current?.()
-          if (!audioSeenRef.current) {
-            audioSeenRef.current = true
-            onSpeechStartRef.current?.()
-          }
+        if (rms > RMS_THRESHOLD) {
+          lastAudioAtRef.current = Date.now()
+          onActivityR.current?.()
+          onStartRef.current?.()   // idempotent on the controller side
         }
         meterRafRef.current = requestAnimationFrame(tick)
       }
       meterRafRef.current = requestAnimationFrame(tick)
     } catch { setInputLevel(0) }
-  }, [])
+  }, [stopMeter])
+
+  // Start ONE recording cycle on the already-open stream.
+  // Calls itself recursively after each transcription.
+  const startCycle = useCallback((stream: MediaStream, sid: number) => {
+    if (!runningRef.current || sessionIdRef.current !== sid) return
+
+    stoppingRef.current = false
+    const chunks: Blob[] = []
+    recordStartRef.current = Date.now()
+    lastAudioAtRef.current = Date.now() // initialise so silence timer works immediately
+
+    let recorder: MediaRecorder
+    try {
+      recorder = new MediaRecorder(stream)
+    } catch {
+      onErrorRef.current?.('Recording not supported on this device.')
+      return
+    }
+    recorderRef.current = recorder
+
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+
+    recorder.onstop = async () => {
+      stoppingRef.current = false
+      setIsListening(false)
+      if (!runningRef.current || sessionIdRef.current !== sid) return
+
+      const blob = new Blob(chunks, { type: 'audio/webm' })
+
+      if (blob.size < MIN_BLOB_BYTES) {
+        onSilentRef.current?.()
+        // Brief pause then start next cycle on the same stream
+        window.setTimeout(() => startCycle(stream, sid), 80)
+        return
+      }
+
+      try {
+        const text = await transcribeAudio(blob)
+        const trimmed = text.trim()
+        if (trimmed) {
+          setTranscript(trimmed)
+          await Promise.resolve(onFinalRef.current(trimmed))
+          setTranscript('')
+        } else {
+          onSilentRef.current?.()
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Transcription failed.'
+        if (!/too short|no speech detected|recording too short/i.test(msg)) {
+          onErrorRef.current?.(msg)
+        } else {
+          onSilentRef.current?.()
+        }
+      } finally {
+        if (runningRef.current && sessionIdRef.current === sid) {
+          window.setTimeout(() => startCycle(stream, sid), 80)
+        }
+      }
+    }
+
+    // Use a timeslice so we get data chunks periodically — same as
+    // the working chat page recorder. Without this, requestData() on
+    // a fresh recorder can produce empty output on some browsers.
+    try { recorder.start(100) } catch { try { recorder.start() } catch { return } }
+    setIsListening(true)
+
+    // Silence-based stop: once audio has been recording for MIN_RECORD_MS,
+    // stop whenever there's been SILENCE_MS of quiet.
+    silenceTimerRef.current = window.setInterval(() => {
+      if (!runningRef.current || sessionIdRef.current !== sid) return
+      if (Date.now() - recordStartRef.current < MIN_RECORD_MS) return
+      if (Date.now() - lastAudioAtRef.current >= SILENCE_MS) stopRecorder()
+    }, 80)
+
+    maxTimerRef.current = window.setTimeout(() => stopRecorder(), MAX_RECORD_MS)
+  }, [clearTimers, stopRecorder]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startListening = useCallback(async () => {
     if (runningRef.current) return
@@ -147,104 +206,28 @@ export function useVoiceInput({
     }
 
     runningRef.current = true
+    const sid = ++sessionIdRef.current
 
-    const startCycle = async () => {
-      if (!runningRef.current) return
-      const cycleId = ++cycleIdRef.current
-      clearTimers()
-      stopStream()
-      chunksRef.current = []
-      stoppingRef.current = false
-      audioSeenRef.current = false
-      lastAudioAtRef.current = 0
-
-      let stream: MediaStream
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      } catch {
-        runningRef.current = false
-        setIsListening(false)
-        onErrorRef.current?.('Microphone blocked. Allow mic access in browser settings.')
-        return
-      }
-
-      if (!runningRef.current || cycleId !== cycleIdRef.current) {
-        stream.getTracks().forEach((t) => t.stop())
-        return
-      }
-
-      streamRef.current = stream
-      const recorder = new MediaRecorder(stream)
-      mediaRef.current = recorder
-      recordStartRef.current = nowMs()
-
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-
-      recorder.onstop = async () => {
-        clearTimers()
-        stopStream()
-        mediaRef.current = null
-        stoppingRef.current = false
-
-        if (!runningRef.current || cycleId !== cycleIdRef.current) return
-
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        chunksRef.current = []
-        setIsListening(false)
-
-        // Always attempt transcription if blob has real data — don't gate on
-        // RMS detection, because that gate is what silently killed input.
-        if (blob.size < MIN_BLOB_BYTES) {
-          onSilentCaptureRef.current?.()
-          window.setTimeout(() => { void startCycle() }, 80)
-          return
-        }
-
-        try {
-          const text = await transcribeAudio(blob)
-          const trimmed = text.trim()
-          if (trimmed) {
-            setTranscript(trimmed)
-            await Promise.resolve(onFinalTranscriptRef.current(trimmed))
-            setTranscript('')
-          } else {
-            onSilentCaptureRef.current?.()
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Transcription failed.'
-          if (!/too short|no speech detected|recording too short/i.test(msg)) {
-            onErrorRef.current?.(msg)
-          } else {
-            onSilentCaptureRef.current?.()
-          }
-        } finally {
-          if (runningRef.current && cycleId === cycleIdRef.current) {
-            window.setTimeout(() => { void startCycle() }, 80)
-          }
-        }
-      }
-
-      recorder.start()
-      setIsListening(true)
-      lastAudioAtRef.current = nowMs() // initialise so silence timer works from start
-      startMeter(stream, cycleId)
-
-      // Silence-based stop: fire after SILENCE_AFTER_AUDIO_MS of quiet,
-      // but only after MIN_RECORD_MS so we don't cut off immediately.
-      silenceTimerRef.current = window.setInterval(() => {
-        if (!runningRef.current || cycleId !== cycleIdRef.current) return
-        const elapsed = nowMs() - recordStartRef.current
-        if (elapsed < MIN_RECORD_MS) return
-        const quiet = nowMs() - lastAudioAtRef.current
-        if (quiet >= SILENCE_AFTER_AUDIO_MS) stopCurrentRecording()
-      }, 80)
-
-      // Hard cap
-      maxTimerRef.current = window.setTimeout(() => stopCurrentRecording(), MAX_RECORD_MS)
+    let stream: MediaStream
+    try {
+      // ONE getUserMedia call for the entire session — keeps the stream alive
+      // across recording cycles so we don't hit rapid re-permission issues.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      runningRef.current = false
+      onErrorRef.current?.('Microphone blocked. Allow mic access in browser settings.')
+      return
     }
 
-    await startCycle()
-  }, [clearTimers, startMeter, stopCurrentRecording, stopStream])
+    if (!runningRef.current || sessionIdRef.current !== sid) {
+      stream.getTracks().forEach((t) => t.stop())
+      return
+    }
+
+    streamRef.current = stream
+    startMeter(stream, sid)
+    startCycle(stream, sid)
+  }, [startCycle, startMeter])
 
   useEffect(() => () => stopListening(), [stopListening])
 
