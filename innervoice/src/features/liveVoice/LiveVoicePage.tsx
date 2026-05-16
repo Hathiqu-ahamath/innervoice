@@ -13,8 +13,8 @@ interface Props {
 }
 
 const SILENCE_AUTO_CLOSE_MS = 20000
-/** Only play a vocal filler if the model is still thinking after this long. */
-const LATENCY_FILLER_MS = 650
+/** Show a thinking hint in UI only (no TTS) if the model is still working. */
+const LATENCY_HINT_MS = 900
 const DUPLICATE_UTTERANCE_MS = 900
 const SILENT_CAPTURE_LIMIT = 3
 const STICKY_STATUS_MS = 3500
@@ -164,10 +164,18 @@ export function LiveVoicePage({ onLeave }: Props) {
   // accidentally transcribed as user input.
   const speakReply = useCallback(
     async (replyText: string, replyEmotion: Emotion, turnId: number) => {
+      if (!voiceId) {
+        setStickyStatus('No cloned voice — complete Voice Train to hear replies in your voice.')
+        resumeCapture()
+        return
+      }
       pauseCapture()
       setStatusDetail('Speaking...')
       try {
         await speak({ text: replyText, emotion: replyEmotion, voiceId, realtime: true })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Voice output failed.'
+        setStickyStatus(msg)
       } finally {
         if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
         resumeCapture()
@@ -175,17 +183,19 @@ export function LiveVoicePage({ onLeave }: Props) {
         lastActivityAtRef.current = Date.now()
       }
     },
-    [pauseCapture, resumeCapture, speak, voiceId],
+    [pauseCapture, resumeCapture, setStickyStatus, speak, voiceId],
   )
 
   // Interrupt: tap the orb while the AI is speaking.
   const interruptAndListen = useCallback(() => {
     if (!isSpeakingRef.current) return
     wasInterruptedRef.current = true
+    activeTurnRef.current += 1
+    clearFillerTimer()
     stopSpeaking()
     setStatusDetail("I'm listening...")
-    void startListening()
-  }, [startListening, stopSpeaking])
+    resumeCapture()
+  }, [clearFillerTimer, resumeCapture, stopSpeaking])
 
   const handleTranscript = useCallback(
     async (finalText: string) => {
@@ -211,62 +221,34 @@ export function LiveVoicePage({ onLeave }: Props) {
         return
       }
 
-      // Barge-in: new speech cancels in-flight reply/filler and starts fresh.
+      // Barge-in: new speech cancels in-flight reply and starts fresh.
       const turnId = ++activeTurnRef.current
       clearFillerTimer()
       stopSpeaking()
-      if (isSpeakingRef.current) wasInterruptedRef.current = true
+      wasInterruptedRef.current = false
 
       setLastUserCaption(trimmed)
       setStatusDetail('Thinking…')
       isProcessingRef.current = true
 
       const turnPromise = processUserTurn(trimmed)
-      const latencyFiller = pickFrom(THINKING_FILLERS)
+      const latencyHint = pickFrom(THINKING_FILLERS)
       let turnArrived = false
-      let fillerSpeaking = false
 
       fillerTimerRef.current = window.setTimeout(() => {
         if (!sessionActiveRef.current || activeTurnRef.current !== turnId || turnArrived) return
-        void (async () => {
-          fillerSpeaking = true
-          setStatusDetail(latencyFiller.display)
-          pauseCapture()
-          try {
-            await speak({ text: latencyFiller.spoken, emotion: 'neutral', voiceId, realtime: true })
-          } catch {
-            // optional
-          } finally {
-            fillerSpeaking = false
-            if (
-              !turnArrived &&
-              sessionActiveRef.current &&
-              activeTurnRef.current === turnId &&
-              !wasInterruptedRef.current
-            ) {
-              resumeCapture()
-              setStatusDetail('Thinking…')
-            }
-          }
-        })()
-      }, LATENCY_FILLER_MS)
+        setStatusDetail(latencyHint.display)
+      }, LATENCY_HINT_MS)
 
       try {
         const turn = await turnPromise
         turnArrived = true
         clearFillerTimer()
-        if (fillerSpeaking) stopSpeaking()
 
         if (!sessionActiveRef.current || activeTurnRef.current !== turnId) return
         if (!turn) {
           resumeCapture()
           setStatusDetail("I'm listening...")
-          return
-        }
-
-        if (wasInterruptedRef.current) {
-          setLatestReply(turn.displayText)
-          resumeCapture()
           return
         }
 
@@ -278,7 +260,7 @@ export function LiveVoicePage({ onLeave }: Props) {
         }
       }
     },
-    [clearFillerTimer, pauseCapture, processUserTurn, resumeCapture, speak, speakReply, stopSpeaking, voiceId],
+    [clearFillerTimer, pauseCapture, processUserTurn, resumeCapture, speakReply, stopSpeaking],
   )
 
   useEffect(() => {
