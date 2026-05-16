@@ -10,6 +10,15 @@ import { useVoiceOutput } from './useVoiceOutput'
 
 const SILENCE_AUTO_CLOSE_MS = 18000
 const FILLER_DELAY_MS = 700
+// After this many empty transcripts in a row, we tell the user their mic
+// might be muted instead of just silently looping.
+const SILENT_CAPTURE_LIMIT = 3
+// How long a "sticky" status message survives before the auto-status effect
+// can overwrite it. Lets errors/diagnostics stay visible.
+const STICKY_STATUS_MS = 3500
+
+const GREETING_TEXT = "[warm] Hey. [short pause] I am right here. Whenever you are ready, talk to me."
+const GREETING_DISPLAY = "Hey. I'm right here. Whenever you're ready, talk to me."
 
 const THINKING_FILLERS = [
   { display: 'Mm, let me sit with that for a sec.', spoken: '[thoughtful] Mm, [short pause] let me sit with that for a sec.' },
@@ -89,6 +98,10 @@ export function LiveVoiceController() {
   const lastActivityAtRef = useRef(0)
   const sessionIdRef = useRef(0)
   const lastHandledTranscriptRef = useRef<{ text: string; at: number }>({ text: '', at: 0 })
+  const silentCaptureCountRef = useRef(0)
+  // Holds a status message we want to keep visible (e.g. "Mic seems muted")
+  // even when the auto-status effect would otherwise overwrite it.
+  const stickyStatusUntilRef = useRef(0)
 
   // Re-entrancy + interrupt tracking.
   const isProcessingRef = useRef(false)
@@ -99,6 +112,11 @@ export function LiveVoiceController() {
 
   const { state, processUserTurn, resetConversation } = useLiveConversation()
   const { isSpeaking, outputLevel, speak, stopSpeaking } = useVoiceOutput()
+
+  const setStickyStatus = useCallback((text: string, ms: number = STICKY_STATUS_MS) => {
+    stickyStatusUntilRef.current = Date.now() + ms
+    setStatusDetail(text)
+  }, [])
 
   useEffect(() => {
     isSpeakingRef.current = isSpeaking
@@ -125,9 +143,17 @@ export function LiveVoiceController() {
     onActivity: () => {
       lastActivityAtRef.current = currentTimestamp()
     },
-    onError: (message) => setStatusDetail(message),
+    onError: (message) => setStickyStatus(message),
     onFinalTranscript: (finalText) => {
+      silentCaptureCountRef.current = 0
       handleTranscriptRef.current(finalText)
+    },
+    onSilentCapture: () => {
+      silentCaptureCountRef.current += 1
+      if (silentCaptureCountRef.current >= SILENT_CAPTURE_LIMIT) {
+        setStickyStatus("I can't hear you. Check that your mic isn't muted.")
+        silentCaptureCountRef.current = 0
+      }
     },
   })
 
@@ -315,15 +341,38 @@ export function LiveVoiceController() {
     sessionIdRef.current += 1
     lastActivityAtRef.current = currentTimestamp()
     lastHandledTranscriptRef.current = { text: '', at: 0 }
+    silentCaptureCountRef.current = 0
     setStatusDetail('Opening microphone...')
-    const openerDisplay = "I'm here. Start talking when you're ready."
-    setLatestReply(openerDisplay)
+    setLatestReply(GREETING_DISPLAY)
     const sessionId = sessionIdRef.current
+
+    // Speak the greeting through ElevenLabs (v3 audio tags inside GREETING_TEXT
+    // give it warmth). This is what makes the popup feel "alive" the moment
+    // it opens — without it the user just sees text and assumes nothing works.
+    void speak({
+      text: GREETING_TEXT,
+      emotion: 'neutral',
+      voiceId,
+      realtime: false,
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[live-voice] greeting speak failed', err)
+      // ElevenLabs failed -- surface it so the user knows audio output is
+      // broken (most common cause: key/quota issue).
+      setStickyStatus('Voice output unavailable. Check ElevenLabs key.')
+    })
+
     void startListening().then(() => {
       if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
-      setStatusDetail("I'm listening...")
+      // Don't fight the greeting — only flip to "listening" once it has had
+      // a moment to start playing.
+      window.setTimeout(() => {
+        if (!liveModeRef.current || sessionIdRef.current !== sessionId) return
+        if (Date.now() < stickyStatusUntilRef.current) return
+        setStatusDetail("I'm listening...")
+      }, 600)
     })
-  }, [startListening])
+  }, [setStickyStatus, speak, startListening, voiceId])
 
   const endSession = useCallback(() => {
     sessionIdRef.current += 1
@@ -358,6 +407,9 @@ export function LiveVoiceController() {
 
   useEffect(() => {
     if (!isLiveMode) return
+    // If we just pushed a sticky message (error, silent-mic warning, etc.)
+    // give it a few seconds before the canonical status takes back over.
+    if (Date.now() < stickyStatusUntilRef.current) return
     if (!isSessionActive) {
       setStatusDetail('Session ended. Tap Start Session.')
       return

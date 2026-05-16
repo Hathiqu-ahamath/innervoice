@@ -6,6 +6,10 @@ interface UseVoiceInputOptions {
   onSpeechStart?: () => void
   onActivity?: () => void
   onError?: (message: string) => void
+  // Fired when we recorded a chunk but Whisper returned empty text (i.e. the
+  // mic was either muted or only captured silence). Controller uses this to
+  // show "I can't hear you" after a few consecutive empties.
+  onSilentCapture?: () => void
 }
 
 // We use silence detection to stop early when it works, but otherwise fall
@@ -52,6 +56,7 @@ export function useVoiceInput({
   onSpeechStart,
   onActivity,
   onError,
+  onSilentCapture,
 }: UseVoiceInputOptions) {
   const [isSupported] = useState(
     Boolean(navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'),
@@ -80,6 +85,7 @@ export function useVoiceInput({
   const onSpeechStartRef = useRef(onSpeechStart)
   const onActivityRef = useRef(onActivity)
   const onErrorRef = useRef(onError)
+  const onSilentCaptureRef = useRef(onSilentCapture)
 
   useEffect(() => {
     onFinalTranscriptRef.current = onFinalTranscript
@@ -93,6 +99,9 @@ export function useVoiceInput({
   useEffect(() => {
     onErrorRef.current = onError
   }, [onError])
+  useEffect(() => {
+    onSilentCaptureRef.current = onSilentCapture
+  }, [onSilentCapture])
 
   const clearTimers = useCallback(() => {
     if (silenceTimerRef.current !== null) {
@@ -290,6 +299,7 @@ export function useVoiceInput({
             // see in the console if the mic constraints silenced the stream.
             // eslint-disable-next-line no-console
             console.debug('[live-voice] empty chunk', { size: blob.size, mime: blob.type })
+            onSilentCaptureRef.current?.()
             return
           }
 
@@ -299,6 +309,7 @@ export function useVoiceInput({
               if (!trimmed) {
                 // eslint-disable-next-line no-console
                 console.debug('[live-voice] empty transcript', { size: blob.size })
+                onSilentCaptureRef.current?.()
                 return
               }
               onActivityRef.current?.()

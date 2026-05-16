@@ -11,7 +11,11 @@ import { V3_TAG_PROMPT_HINT } from '../../lib/elevenV3Tags'
 const REALTIME_URL = 'wss://api.openai.com/v1/realtime'
 const PRIMARY_MODEL = 'gpt-realtime'
 const FALLBACK_MODEL = 'gpt-4o-realtime-preview-2024-12-17'
-const RESPONSE_TIMEOUT_MS = 28000
+// Keep this tight. If the WS hangs (network, region, key without realtime
+// access, etc.) we want to surrender to the chat-completions fallback fast
+// instead of leaving the user staring at "Thinking..." forever.
+const RESPONSE_TIMEOUT_MS = 7000
+const CONNECT_TIMEOUT_MS = 4000
 
 const OPENAI_KEY =
   (import.meta.env.VITE_OPENAI_API_KEY as string | undefined) ||
@@ -61,8 +65,33 @@ class RealtimeBrain {
 
   private latestEmotion = 'neutral'
 
+  // Sticky failure flag. Once realtime fails to connect/respond, we stop
+  // trying for the rest of the session and let chat completions handle it.
+  // Without this, every turn pays the full timeout cost again.
+  private disabled = false
+
+  isAvailable(): boolean {
+    return !this.disabled
+  }
+
   isOpen(): boolean {
     return this.ws?.readyState === WebSocket.OPEN
+  }
+
+  disable() {
+    this.disabled = true
+    this.currentResolver = null
+    this.currentRejecter = null
+    this.currentBuffer = ''
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch {
+        // noop
+      }
+      this.ws = null
+    }
+    this.connectPromise = null
   }
 
   reset() {
@@ -70,6 +99,7 @@ class RealtimeBrain {
     this.currentRejecter = null
     this.currentBuffer = ''
     this.pushedItemIds.clear()
+    this.disabled = false
     if (this.ws) {
       try {
         this.ws.close()
@@ -84,20 +114,34 @@ class RealtimeBrain {
   private async openSocket(model: string): Promise<WebSocket> {
     if (!OPENAI_KEY) throw new Error('OpenAI key missing for realtime brain.')
     return new Promise((resolve, reject) => {
+      let settled = false
       try {
         const ws = new WebSocket(`${REALTIME_URL}?model=${model}`, [
           'realtime',
           `openai-insecure-api-key.${OPENAI_KEY}`,
           'openai-beta.realtime-v1',
         ])
-        const onError = () => {
+        const timeout = window.setTimeout(() => {
+          if (settled) return
+          settled = true
+          try { ws.close() } catch { /* noop */ }
+          reject(new Error('Realtime WebSocket connect timeout.'))
+        }, CONNECT_TIMEOUT_MS)
+        const cleanup = () => {
+          window.clearTimeout(timeout)
           ws.removeEventListener('open', onOpen)
           ws.removeEventListener('error', onError)
+        }
+        const onError = () => {
+          if (settled) return
+          settled = true
+          cleanup()
           reject(new Error('Realtime WebSocket connection failed.'))
         }
         const onOpen = () => {
-          ws.removeEventListener('open', onOpen)
-          ws.removeEventListener('error', onError)
+          if (settled) return
+          settled = true
+          cleanup()
           resolve(ws)
         }
         ws.addEventListener('open', onOpen)
@@ -261,8 +305,17 @@ class RealtimeBrain {
   }
 
   async send(history: Message[]): Promise<string> {
-    await this.connect()
-    if (!this.ws) throw new Error('Realtime brain not connected.')
+    if (this.disabled) throw new Error('Realtime brain disabled for this session.')
+    try {
+      await this.connect()
+    } catch (err) {
+      this.disabled = true
+      throw err
+    }
+    if (!this.ws) {
+      this.disabled = true
+      throw new Error('Realtime brain not connected.')
+    }
 
     const latestUser = [...history].reverse().find((m) => m.role === 'user')
     if (!latestUser) throw new Error('No user message in history.')
@@ -347,7 +400,18 @@ export async function sendToRealtimeBrain(history: Message[]): Promise<string> {
   // user emotion so the model can adjust its delivery.
   const latestUser = [...history].reverse().find((m) => m.role === 'user')
   if (latestUser?.emotion) brain.setLatestEmotion(latestUser.emotion)
-  return brain.send(history)
+  try {
+    return await brain.send(history)
+  } catch (err) {
+    // Hard-disable for the rest of this session — chat completions will
+    // take over via voiceService's fallback path.
+    brain.disable()
+    throw err
+  }
+}
+
+export function isRealtimeBrainAvailable(): boolean {
+  return getBrain().isAvailable()
 }
 
 export function resetRealtimeBrain() {
