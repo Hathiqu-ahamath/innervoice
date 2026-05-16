@@ -5,22 +5,26 @@ interface StoredUser {
   name: string
   passwordHash: string
   voiceId: string | null
+  bio: string
   createdAt: number
 }
 
-interface PublicUser {
+export interface PublicUser {
   email: string
   name: string
   voiceId: string | null
+  bio: string
+  createdAt: number
 }
 
 interface AuthContextValue {
   user: PublicUser | null
   isAuthenticated: boolean
-  register: (input: { name: string; email: string; password: string }) => Promise<void>
+  register: (input: { name: string; email: string; password: string; bio?: string }) => Promise<void>
   login: (input: { email: string; password: string }) => Promise<void>
   logout: () => void
   setUserVoiceId: (voiceId: string | null) => void
+  updateProfile: (input: { name: string; bio?: string }) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -39,7 +43,13 @@ function hashPassword(password: string): string {
 
 function readUsers(): Record<string, StoredUser> {
   try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) || '{}') as Record<string, StoredUser>
+    const raw = JSON.parse(localStorage.getItem(USERS_KEY) || '{}') as Record<string, StoredUser>
+    for (const email of Object.keys(raw)) {
+      const u = raw[email]
+      if (u.bio === undefined) u.bio = ''
+      if (u.createdAt === undefined) u.createdAt = Date.now()
+    }
+    return raw
   } catch {
     return {}
   }
@@ -49,11 +59,26 @@ function writeUsers(users: Record<string, StoredUser>) {
   localStorage.setItem(USERS_KEY, JSON.stringify(users))
 }
 
+function toPublicUser(stored: StoredUser): PublicUser {
+  return {
+    email: stored.email,
+    name: stored.name,
+    voiceId: stored.voiceId,
+    bio: stored.bio ?? '',
+    createdAt: stored.createdAt,
+  }
+}
+
 function readSession(): PublicUser | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
-    return JSON.parse(raw) as PublicUser
+    const parsed = JSON.parse(raw) as PublicUser
+    return {
+      ...parsed,
+      bio: parsed.bio ?? '',
+      createdAt: parsed.createdAt ?? Date.now(),
+    }
   } catch {
     return null
   }
@@ -70,31 +95,35 @@ function writeSession(user: PublicUser | null) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(() => readSession())
 
-  const register = useCallback(async ({ name, email, password }: { name: string; email: string; password: string }) => {
-    const normalizedEmail = email.trim().toLowerCase()
-    if (!normalizedEmail || !password || !name.trim()) {
-      throw new Error('Please fill in your name, email and password.')
-    }
-    if (password.length < 6) {
-      throw new Error('Password must be at least 6 characters.')
-    }
-    const users = readUsers()
-    if (users[normalizedEmail]) {
-      throw new Error('An account with that email already exists. Try logging in.')
-    }
-    const stored: StoredUser = {
-      email: normalizedEmail,
-      name: name.trim(),
-      passwordHash: hashPassword(password),
-      voiceId: null,
-      createdAt: Date.now(),
-    }
-    users[normalizedEmail] = stored
-    writeUsers(users)
-    const publicUser: PublicUser = { email: stored.email, name: stored.name, voiceId: null }
-    writeSession(publicUser)
-    setUser(publicUser)
-  }, [])
+  const register = useCallback(
+    async ({ name, email, password, bio }: { name: string; email: string; password: string; bio?: string }) => {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (!normalizedEmail || !password || !name.trim()) {
+        throw new Error('Please fill in your name, email and password.')
+      }
+      if (password.length < 6) {
+        throw new Error('Password must be at least 6 characters.')
+      }
+      const users = readUsers()
+      if (users[normalizedEmail]) {
+        throw new Error('An account with that email already exists. Try logging in.')
+      }
+      const stored: StoredUser = {
+        email: normalizedEmail,
+        name: name.trim(),
+        passwordHash: hashPassword(password),
+        voiceId: null,
+        bio: bio?.trim() ?? '',
+        createdAt: Date.now(),
+      }
+      users[normalizedEmail] = stored
+      writeUsers(users)
+      const publicUser = toPublicUser(stored)
+      writeSession(publicUser)
+      setUser(publicUser)
+    },
+    [],
+  )
 
   const login = useCallback(async ({ email, password }: { email: string; password: string }) => {
     const normalizedEmail = email.trim().toLowerCase()
@@ -103,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!stored || stored.passwordHash !== hashPassword(password)) {
       throw new Error('Invalid email or password.')
     }
-    const publicUser: PublicUser = { email: stored.email, name: stored.name, voiceId: stored.voiceId }
+    const publicUser = toPublicUser(stored)
     writeSession(publicUser)
     setUser(publicUser)
   }, [])
@@ -129,6 +158,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const updateProfile = useCallback(async ({ name, bio }: { name: string; bio?: string }) => {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      throw new Error('Name cannot be empty.')
+    }
+    const current = readSession()
+    if (!current) return
+    const users = readUsers()
+    const stored = users[current.email]
+    if (!stored) return
+    stored.name = trimmedName
+    stored.bio = bio?.trim() ?? ''
+    users[current.email] = stored
+    writeUsers(users)
+    const next: PublicUser = { ...current, name: trimmedName, bio: stored.bio }
+    writeSession(next)
+    setUser(next)
+  }, [])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -137,8 +185,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       setUserVoiceId,
+      updateProfile,
     }),
-    [login, logout, register, setUserVoiceId, user],
+    [login, logout, register, setUserVoiceId, updateProfile, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

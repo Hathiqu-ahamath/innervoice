@@ -9,6 +9,7 @@ import { ChatView } from './components/ChatView'
 import { CloningView } from './components/CloningView'
 import { HistoryPanel } from './components/HistoryPanel'
 import { Navbar } from './components/Navbar'
+import { ProfilePanel } from './components/ProfilePanel'
 import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { RecordingView } from './components/RecordingView'
 import { useConversations } from './hooks/useConversations'
@@ -31,6 +32,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem(ONBOARDED_KEY))
 
@@ -183,6 +185,8 @@ export default function App() {
         }}
       />
 
+      <ProfilePanel open={showProfile} onClose={() => setShowProfile(false)} />
+
       <HistoryPanel
         open={showHistory}
         conversations={conversations}
@@ -214,6 +218,7 @@ export default function App() {
           hasHistory={conversations.length > 0}
           onNavigate={navigate}
           onOpenHistory={() => setShowHistory(true)}
+          onOpenProfile={() => setShowProfile(true)}
         />
 
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-tertiary">
@@ -282,7 +287,7 @@ export default function App() {
             {step === 'chat' && (
               <button
                 type="button"
-                className="rounded-full border border-border bg-black/40 px-3 py-1 transition hover:border-red-500/60 hover:text-white"
+                className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-red-500/60 hover:text-text-primary"
                 onClick={() => {
                   setUserVoiceId(null)
                   setStep('recording')
@@ -295,7 +300,7 @@ export default function App() {
             )}
             <button
               type="button"
-              className="rounded-full border border-border bg-black/40 px-3 py-1 transition hover:border-red-500/60 hover:text-white"
+              className="rounded-full border border-border bg-elevated px-3 py-1 transition hover:border-red-500/60 hover:text-text-primary"
               onClick={resetApp}
             >
               Start over

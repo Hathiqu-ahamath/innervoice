@@ -29,7 +29,7 @@ export function OnboardingOverlay({ open, step, onNext, onBack, onSkip, onFinish
   const current = STEPS[step]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4 backdrop-blur-sm">
       <div className="glass-panel w-full max-w-md rounded-2xl border border-border p-6">
         <h2 className="text-xl font-semibold text-text-primary">{current.title}</h2>
         <p className="mt-2 text-sm text-text-secondary">{current.text}</p>

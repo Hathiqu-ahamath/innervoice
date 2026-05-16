@@ -125,8 +125,8 @@ export function VoiceInput({ onTranscript, disabled = false }: Props) {
           isRecording
             ? 'border-red-400 bg-red-600 text-white shadow-[0_0_24px_rgba(239,68,68,0.45)]'
             : isTranscribing
-              ? 'border-border bg-black/70 text-text-secondary'
-              : 'border-border bg-black/70 text-text-secondary hover:border-red-500/60 hover:text-white'
+              ? 'border-border bg-elevated text-text-secondary'
+              : 'border-border bg-elevated text-text-secondary hover:border-red-500/60 hover:text-text-primary'
         }`}
       >
         {isTranscribing ? (

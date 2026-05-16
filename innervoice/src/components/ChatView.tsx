@@ -74,7 +74,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
         <button
           type="button"
           onClick={() => setVoiceModeEnabled((prev) => !prev)}
-          className="whitespace-nowrap rounded-full border border-border bg-black/40 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
+          className="whitespace-nowrap rounded-full border border-border bg-elevated px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-text-primary"
         >
           {voiceModeEnabled ? 'Disable' : 'Enable'}
         </button>
@@ -102,7 +102,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
               className={`rounded-2xl border p-3 ${
                 message.role === 'user'
                   ? 'ml-auto max-w-[90%] border-red-500/30 bg-red-600/15'
-                  : 'mr-auto max-w-[90%] border-white/10 bg-black/55'
+                  : 'mr-auto max-w-[90%] border-border bg-assistant-bubble'
               }`}
             >
               <p className="text-sm text-text-primary">{message.text}</p>
@@ -122,7 +122,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           ))}
         </AnimatePresence>
         {isProcessing && (
-          <div className="animate-fade-in rounded-xl border border-red-500/25 bg-black/60 p-3 text-sm text-text-secondary">
+          <div className="animate-fade-in rounded-xl border border-red-500/25 bg-elevated p-3 text-sm text-text-secondary">
             <span className="inline-flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
               Your future self is composing a reply…
@@ -142,7 +142,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
           type="button"
           aria-label="Open question suggestions"
           onClick={() => setSuggestionsOpen(true)}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-black/60 text-text-secondary transition hover:border-red-500/60 hover:text-white"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border bg-elevated text-text-secondary transition hover:border-red-500/60 hover:text-text-primary"
         >
           <Lightbulb size={18} />
         </button>
@@ -170,7 +170,7 @@ export function ChatView({ messages, isProcessing, onSend }: Props) {
               }
             }}
             placeholder="Say what is on your mind…"
-            className="min-h-[48px] w-full resize-none rounded-xl border border-border bg-black/45 px-3 py-2 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+            className="min-h-[48px] w-full resize-none rounded-xl border border-border bg-input-bg px-3 py-2 text-sm text-text-primary outline-none transition focus:border-red-500/60"
           />
           <p className="mt-1 text-right text-xs text-text-tertiary">{remaining} characters left</p>
         </div>
@@ -242,7 +242,7 @@ function AudioBubble({
             element.pause()
           }
         }}
-        className="inline-flex items-center gap-1 rounded-full border border-border bg-black/60 px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-white"
+        className="inline-flex items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-text-secondary transition hover:border-red-500/60 hover:text-text-primary"
       >
         {playing ? <Pause size={12} /> : <Play size={12} />}
         {playing ? 'Pause' : 'Play'}

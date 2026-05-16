@@ -35,7 +35,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-overlay p-4 backdrop-blur-sm sm:items-center"
           onClick={onClose}
         >
           <motion.div
@@ -66,7 +66,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
                   type="button"
                   aria-label="Close suggestions"
                   onClick={onClose}
-                  className="rounded-full border border-border p-1.5 text-text-tertiary transition hover:border-red-500/60 hover:text-white"
+                  className="rounded-full border border-border bg-elevated p-1.5 text-text-tertiary transition hover:border-red-500/60 hover:text-text-primary"
                 >
                   <X size={16} />
                 </button>
@@ -81,7 +81,7 @@ export function FollowUpSuggestions({ open, onClose, onSelect }: Props) {
                       onSelect(item)
                       onClose()
                     }}
-                    className="rounded-xl border border-border bg-black/50 px-4 py-3 text-left text-sm text-text-primary transition hover:border-red-500/50 hover:bg-red-600/10"
+                    className="rounded-xl border border-border bg-elevated px-4 py-3 text-left text-sm text-text-primary transition hover:border-red-500/50 hover:bg-red-600/10"
                   >
                     {item}
                   </button>

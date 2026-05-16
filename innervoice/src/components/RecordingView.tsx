@@ -121,7 +121,7 @@ export function RecordingView({ onUseRecording }: Props) {
           Voice Training
         </h2>
         <p className="mt-1 text-xs text-text-secondary">
-          Read the passage below clearly for at least <span className="font-semibold text-white">30 seconds</span>.
+          Read the passage below clearly for at least <span className="font-semibold text-text-primary">30 seconds</span>.
         </p>
       </div>
 
@@ -143,7 +143,7 @@ export function RecordingView({ onUseRecording }: Props) {
               ? 'border-white/20 bg-white/15'
               : isRecording
                 ? 'border-red-400 bg-red-600'
-                : 'border-red-400/60 bg-black/60'
+                : 'border-red-400/60 bg-elevated text-text-primary'
           }`}
         >
           <span className="flex flex-col items-center gap-1">
@@ -160,7 +160,7 @@ export function RecordingView({ onUseRecording }: Props) {
           <span className="text-xs text-text-tertiary"> / 00:30 min</span>
         </p>
 
-        <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-zinc-800">
+        <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-border">
           <div
             className={`h-full rounded-full transition-all duration-200 ${hasReachedMin || previewMeetsMin ? 'bg-emerald-500' : 'bg-red-500'}`}
             style={{ width: `${audioUrl ? Math.min(100, (previewDuration / MIN_DURATION_MS) * 100) : progress}%` }}
@@ -187,7 +187,7 @@ export function RecordingView({ onUseRecording }: Props) {
             <button
               type="button"
               onClick={rerecord}
-              className="flex-1 rounded-full border border-border bg-black/40 px-6 py-3 transition hover:border-red-500/60 hover:text-white"
+              className="flex-1 rounded-full border border-border bg-elevated px-6 py-3 text-text-primary transition hover:border-red-500/60"
             >
               Re-record
             </button>

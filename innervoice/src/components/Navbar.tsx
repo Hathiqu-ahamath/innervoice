@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AudioLines, Clock, LogOut, MessageCircle, Mic2, UserPlus } from 'lucide-react'
+import { AudioLines, Clock, LogOut, MessageCircle, Mic2, User, UserPlus } from 'lucide-react'
 import { useAuth } from '../AuthContext'
 import { ThemeToggle } from './ThemeToggle'
 import type { AppStep } from '../types'
@@ -9,6 +9,7 @@ interface Props {
   hasHistory: boolean
   onNavigate: (step: AppStep) => void
   onOpenHistory: () => void
+  onOpenProfile: () => void
 }
 
 function NavButton({
@@ -31,8 +32,8 @@ function NavButton({
       disabled={disabled}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-40 ${
         active
-          ? 'border-red-500/60 bg-red-600/15 text-white shadow-[0_0_14px_rgba(239,68,68,0.3)]'
-          : 'border-border bg-black/40 text-text-secondary hover:border-red-500/60 hover:text-white'
+          ? 'border-red-500/60 bg-red-600/15 text-red-50 shadow-[0_0_14px_rgba(239,68,68,0.3)] dark:text-white'
+          : 'border-border bg-elevated text-text-secondary hover:border-red-500/60 hover:text-text-primary'
       }`}
     >
       {icon}
@@ -41,7 +42,7 @@ function NavButton({
   )
 }
 
-export function Navbar({ step, hasHistory, onNavigate, onOpenHistory }: Props) {
+export function Navbar({ step, hasHistory, onNavigate, onOpenHistory, onOpenProfile }: Props) {
   const { user, isAuthenticated, logout } = useAuth()
 
   return (
@@ -87,6 +88,7 @@ export function Navbar({ step, hasHistory, onNavigate, onOpenHistory }: Props) {
             {hasHistory && (
               <NavButton label="History" icon={<Clock size={14} />} onClick={onOpenHistory} />
             )}
+            <NavButton label="Profile" icon={<User size={14} />} onClick={onOpenProfile} />
             <NavButton label="Log out" icon={<LogOut size={14} />} onClick={logout} />
           </>
         )}

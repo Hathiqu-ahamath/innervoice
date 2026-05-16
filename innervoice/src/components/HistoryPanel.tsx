@@ -28,7 +28,7 @@ export function HistoryPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex">
-      <button type="button" aria-label="Close history" className="flex-1 bg-black/50" onClick={onClose} />
+      <button type="button" aria-label="Close history" className="flex-1 bg-overlay" onClick={onClose} />
       <aside className="glass-panel w-72 border-l border-border p-4 shadow-xl">
         <h2 className="mb-4 text-sm font-semibold text-text-secondary">Conversations</h2>
         <div className="space-y-2">

@@ -11,6 +11,7 @@ export function AuthScreen() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [bio, setBio] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -20,7 +21,7 @@ export function AuthScreen() {
     setSubmitting(true)
     try {
       if (mode === 'register') {
-        await register({ name, email, password })
+        await register({ name, email, password, bio: bio || undefined })
       } else {
         await login({ email, password })
       }
@@ -42,7 +43,7 @@ export function AuthScreen() {
         <AudioLines />
       </div>
       <div className="text-center">
-        <h1 className="bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-3xl font-bold text-transparent">
+        <h1 className="text-3xl font-bold text-text-primary dark:bg-gradient-to-r dark:from-white dark:to-zinc-400 dark:bg-clip-text dark:text-transparent">
           {mode === 'login' ? 'Welcome back' : 'Create your account'}
         </h1>
         <p className="mt-1 text-sm text-text-secondary">
@@ -60,7 +61,17 @@ export function AuthScreen() {
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name"
             required
-            className="rounded-xl border border-border bg-black/55 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+            className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+          />
+        )}
+        {mode === 'register' && (
+          <textarea
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="About you (optional)"
+            rows={2}
+            maxLength={280}
+            className="resize-none rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
           />
         )}
         <input
@@ -69,7 +80,7 @@ export function AuthScreen() {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="Email"
           required
-          className="rounded-xl border border-border bg-black/55 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+          className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
         />
         <input
           type="password"
@@ -78,7 +89,7 @@ export function AuthScreen() {
           placeholder="Password (min 6 chars)"
           required
           minLength={6}
-          className="rounded-xl border border-border bg-black/55 px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
+          className="rounded-xl border border-border bg-input-bg px-4 py-3 text-sm text-text-primary outline-none transition focus:border-red-500/60"
         />
 
         {error && (
@@ -101,7 +112,7 @@ export function AuthScreen() {
           setError(null)
           setMode(mode === 'login' ? 'register' : 'login')
         }}
-        className="text-xs text-text-secondary underline-offset-4 transition hover:text-white hover:underline"
+        className="text-xs text-text-secondary underline-offset-4 transition hover:text-text-primary hover:underline"
       >
         {mode === 'login' ? "Don't have an account? Register" : 'Already have an account? Log in'}
       </button>
