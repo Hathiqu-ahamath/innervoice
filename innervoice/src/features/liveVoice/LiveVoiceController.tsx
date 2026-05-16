@@ -72,18 +72,13 @@ export function LiveVoiceController() {
   const [latestReply, setLatestReply] = useState('')
   const [lastUserCaption, setLastUserCaption] = useState('')
   const [statusDetail, setStatusDetail] = useState('Tap the mic to start live mode.')
-  const [inputLevel, setInputLevel] = useState(0)
   const liveModeRef = useRef(false)
   const lastActivityAtRef = useRef(Date.now())
-  const micStreamRef = useRef<MediaStream | null>(null)
-  const micContextRef = useRef<AudioContext | null>(null)
-  const micAnalyserRef = useRef<AnalyserNode | null>(null)
-  const micMeterRafRef = useRef<number | null>(null)
 
   const { state, processUserTurn, resetConversation } = useLiveConversation()
   const { isSpeaking, outputLevel, speak, stopSpeaking } = useVoiceOutput()
 
-  const { isSupported, isListening, transcript, startListening, stopListening } = useVoiceInput({
+  const { isSupported, isListening, transcript, inputLevel, startListening, stopListening } = useVoiceInput({
     onSpeechStart: () => {
       // Interrupt support: if user starts talking, cut AI voice immediately.
       if (isSpeaking) stopSpeaking()
@@ -94,7 +89,6 @@ export function LiveVoiceController() {
       lastActivityAtRef.current = Date.now()
     },
     onError: (message) => setStatusDetail(message),
-    autoRestart: true,
     onFinalTranscript: async (finalText) => {
       if (!liveModeRef.current) return
       lastActivityAtRef.current = Date.now()
@@ -126,77 +120,6 @@ export function LiveVoiceController() {
 
   useEffect(() => {
     liveModeRef.current = isLiveMode
-  }, [isLiveMode])
-
-  useEffect(() => {
-    const stopInputMeter = () => {
-      if (micMeterRafRef.current !== null) {
-        cancelAnimationFrame(micMeterRafRef.current)
-        micMeterRafRef.current = null
-      }
-      if (micAnalyserRef.current) {
-        try {
-          micAnalyserRef.current.disconnect()
-        } catch {
-          // noop
-        }
-        micAnalyserRef.current = null
-      }
-      if (micContextRef.current) {
-        void micContextRef.current.close().catch(() => {})
-        micContextRef.current = null
-      }
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach((track) => track.stop())
-        micStreamRef.current = null
-      }
-      setInputLevel(0)
-    }
-
-    if (!isLiveMode || !navigator.mediaDevices?.getUserMedia) {
-      stopInputMeter()
-      return
-    }
-
-    let cancelled = false
-    void navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop())
-          return
-        }
-        micStreamRef.current = stream
-        const context = new AudioContext()
-        const analyser = context.createAnalyser()
-        analyser.fftSize = 128
-        const source = context.createMediaStreamSource(stream)
-        source.connect(analyser)
-        micContextRef.current = context
-        micAnalyserRef.current = analyser
-        const data = new Uint8Array(analyser.frequencyBinCount)
-        const tick = () => {
-          if (!micAnalyserRef.current) return
-          analyser.getByteTimeDomainData(data)
-          let sum = 0
-          for (let i = 0; i < data.length; i += 1) {
-            const n = (data[i] - 128) / 128
-            sum += n * n
-          }
-          const rms = Math.sqrt(sum / data.length)
-          setInputLevel(Math.min(1, rms * 5))
-          micMeterRafRef.current = requestAnimationFrame(tick)
-        }
-        micMeterRafRef.current = requestAnimationFrame(tick)
-      })
-      .catch(() => {
-        setInputLevel(0)
-      })
-
-    return () => {
-      cancelled = true
-      stopInputMeter()
-    }
   }, [isLiveMode])
 
   useEffect(() => {

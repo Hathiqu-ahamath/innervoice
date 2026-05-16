@@ -1,34 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { transcribeAudio } from '../../api/speechToText'
 
-interface SpeechRecognitionAlt {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onstart: (() => void) | null
-  onend: (() => void) | null
-  onspeechstart: (() => void) | null
-  onresult: ((event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null
-  onerror: ((event: { error?: string }) => void) | null
-  start: () => void
-  stop: () => void
-}
-
-type SpeechRecognitionCtor = new () => SpeechRecognitionAlt
-
-declare global {
-  interface Window {
-    webkitSpeechRecognition?: SpeechRecognitionCtor
-    SpeechRecognition?: SpeechRecognitionCtor
-  }
-}
-
 interface UseVoiceInputOptions {
   onFinalTranscript: (text: string) => void
   onSpeechStart?: () => void
   onActivity?: () => void
   onError?: (message: string) => void
-  autoRestart?: boolean
 }
 
 export function useVoiceInput({
@@ -36,127 +13,102 @@ export function useVoiceInput({
   onSpeechStart,
   onActivity,
   onError,
-  autoRestart = false,
 }: UseVoiceInputOptions) {
-  const recognitionRef = useRef<SpeechRecognitionAlt | null>(null)
-  const [isSupported, setIsSupported] = useState(false)
+  const [isSupported] = useState(Boolean(navigator.mediaDevices?.getUserMedia))
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
-  const manualStopRef = useRef(false)
-  const fallbackStreamRef = useRef<MediaStream | null>(null)
-  const fallbackRecorderRef = useRef<MediaRecorder | null>(null)
-  const fallbackRunningRef = useRef(false)
-  const useFallbackRef = useRef(false)
+  const [inputLevel, setInputLevel] = useState(0)
+  const streamRef = useRef<MediaStream | null>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const runningRef = useRef(false)
+  const meterContextRef = useRef<AudioContext | null>(null)
+  const meterAnalyserRef = useRef<AnalyserNode | null>(null)
+  const meterRafRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    const ctor = (window.SpeechRecognition ?? window.webkitSpeechRecognition) as SpeechRecognitionCtor | undefined
-    useFallbackRef.current = !ctor
-    setIsSupported(Boolean(ctor) || Boolean(navigator.mediaDevices?.getUserMedia))
-    if (!ctor) return
-
-    const recognition: SpeechRecognitionAlt = new ctor()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = navigator.language || 'en-US'
-
-    recognition.onstart = () => setIsListening(true)
-    recognition.onend = () => {
-      setIsListening(false)
-      if (autoRestart && !manualStopRef.current) {
-        setTimeout(() => {
-          try {
-            recognition.start()
-          } catch {
-            // noop
-          }
-        }, 180)
+  const stopMeter = useCallback(() => {
+    if (meterRafRef.current !== null) {
+      cancelAnimationFrame(meterRafRef.current)
+      meterRafRef.current = null
+    }
+    if (meterAnalyserRef.current) {
+      try {
+        meterAnalyserRef.current.disconnect()
+      } catch {
+        // noop
       }
+      meterAnalyserRef.current = null
     }
-    recognition.onspeechstart = () => {
-      onSpeechStart?.()
-      onActivity?.()
+    if (meterContextRef.current) {
+      void meterContextRef.current.close().catch(() => {})
+      meterContextRef.current = null
     }
-    recognition.onresult = (event) => {
-      let interim = ''
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i]
-        const text = result[0]?.transcript ?? ''
-        if (result.isFinal) {
-          const finalText = text.trim()
-          if (finalText) {
-            onActivity?.()
-            onFinalTranscript(finalText)
-          }
-          setTranscript('')
-        } else {
-          interim += text
-        }
-      }
-      if (interim) {
-        onActivity?.()
-        setTranscript(interim.trim())
-      }
-    }
-
-    recognition.onerror = (event: { error?: string }) => {
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        manualStopRef.current = true
-        onError?.('Microphone permission is blocked for live mode.')
-      } else if (event.error === 'network') {
-        onError?.('Speech recognition network issue. Trying recorder fallback...')
-        useFallbackRef.current = true
-      } else if (event.error === 'no-speech') {
-        onError?.('No speech detected. Keep speaking naturally...')
-      }
-      if (!manualStopRef.current) {
-        setIsListening(false)
-      }
-    }
-
-    recognitionRef.current = recognition
-    return () => {
-      manualStopRef.current = true
-      recognition.stop()
-      recognitionRef.current = null
-    }
-  }, [autoRestart, onActivity, onError, onFinalTranscript, onSpeechStart])
-
-  const stopFallback = useCallback(() => {
-    fallbackRunningRef.current = false
-    if (fallbackRecorderRef.current && fallbackRecorderRef.current.state !== 'inactive') {
-      fallbackRecorderRef.current.stop()
-    }
-    fallbackRecorderRef.current = null
-    if (fallbackStreamRef.current) {
-      fallbackStreamRef.current.getTracks().forEach((track) => track.stop())
-      fallbackStreamRef.current = null
-    }
-    setIsListening(false)
-    setTranscript('')
+    setInputLevel(0)
   }, [])
 
-  const startFallback = useCallback(async () => {
-    if (fallbackRunningRef.current) return
+  const stopListening = useCallback(() => {
+    runningRef.current = false
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop()
+    }
+    recorderRef.current = null
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    stopMeter()
+    setIsListening(false)
+    setTranscript('')
+  }, [stopMeter])
+
+  useEffect(() => () => stopListening(), [stopListening])
+
+  const startListening = useCallback(async () => {
+    if (runningRef.current) return
     if (!navigator.mediaDevices?.getUserMedia) {
       onError?.('Live voice is not supported in this browser.')
       return
     }
     try {
-      fallbackRunningRef.current = true
+      runningRef.current = true
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      fallbackStreamRef.current = stream
+      streamRef.current = stream
       setIsListening(true)
 
+      // Real mic meter from same stream used for capture.
+      try {
+        const context = new AudioContext()
+        const analyser = context.createAnalyser()
+        analyser.fftSize = 128
+        const source = context.createMediaStreamSource(stream)
+        source.connect(analyser)
+        meterContextRef.current = context
+        meterAnalyserRef.current = analyser
+        const data = new Uint8Array(analyser.frequencyBinCount)
+        const tick = () => {
+          if (!meterAnalyserRef.current) return
+          analyser.getByteTimeDomainData(data)
+          let sum = 0
+          for (let i = 0; i < data.length; i += 1) {
+            const n = (data[i] - 128) / 128
+            sum += n * n
+          }
+          const rms = Math.sqrt(sum / data.length)
+          setInputLevel(Math.min(1, rms * 5))
+          meterRafRef.current = requestAnimationFrame(tick)
+        }
+        meterRafRef.current = requestAnimationFrame(tick)
+      } catch {
+        setInputLevel(0)
+      }
+
       const runCycle = () => {
-        if (!fallbackRunningRef.current || !fallbackStreamRef.current) return
-        const recorder = new MediaRecorder(fallbackStreamRef.current)
-        fallbackRecorderRef.current = recorder
+        if (!runningRef.current || !streamRef.current) return
+        const recorder = new MediaRecorder(streamRef.current)
+        recorderRef.current = recorder
         const chunks: BlobPart[] = []
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) chunks.push(event.data)
         }
         recorder.onstop = async () => {
-          if (!fallbackRunningRef.current) return
+          if (!runningRef.current) return
           const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
           if (blob.size > 1200) {
             try {
@@ -169,13 +121,11 @@ export function useVoiceInput({
                 onFinalTranscript(trimmed)
                 setTranscript('')
               }
-            } catch {
-              // keep loop alive even if one transcription fails
+            } catch (err) {
+              onError?.(err instanceof Error ? err.message : 'Live transcription failed.')
             }
           }
-          if (fallbackRunningRef.current) {
-            runCycle()
-          }
+          if (runningRef.current) runCycle()
         }
         recorder.start()
         setTimeout(() => {
@@ -185,41 +135,17 @@ export function useVoiceInput({
 
       runCycle()
     } catch {
-      fallbackRunningRef.current = false
+      runningRef.current = false
       setIsListening(false)
       onError?.('Unable to access microphone for live mode.')
     }
   }, [onActivity, onError, onFinalTranscript, onSpeechStart])
 
-  const startListening = useCallback(() => {
-    if (useFallbackRef.current) {
-      void startFallback()
-      return
-    }
-    const recognition = recognitionRef.current
-    if (!recognition || isListening) return
-    manualStopRef.current = false
-    try {
-      recognition.start()
-    } catch {
-      useFallbackRef.current = true
-      void startFallback()
-    }
-  }, [isListening, startFallback])
-
-  const stopListening = useCallback(() => {
-    stopFallback()
-    const recognition = recognitionRef.current
-    if (!recognition) return
-    manualStopRef.current = true
-    recognition.stop()
-    setTranscript('')
-  }, [stopFallback])
-
   return {
     isSupported,
     isListening,
     transcript,
+    inputLevel,
     startListening,
     stopListening,
   }
